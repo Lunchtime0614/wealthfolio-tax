@@ -1,9 +1,13 @@
-import { useState, useEffect } from "react";
+import { updateAccount } from "@/adapters";
+import type { Account, TrackingMode } from "@/lib/types";
+import { useQueryClient } from "@tanstack/react-query";
+import { RadioGroup, RadioGroupItem } from "@wealthfolio/ui";
+import { Alert, AlertDescription } from "@wealthfolio/ui/components/ui/alert";
 import { Button } from "@wealthfolio/ui/components/ui/button";
+import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { Input } from "@wealthfolio/ui/components/ui/input";
 import { Label } from "@wealthfolio/ui/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@wealthfolio/ui";
-import { Icons } from "@wealthfolio/ui/components/ui/icons";
+import { ScrollArea } from "@wealthfolio/ui/components/ui/scroll-area";
 import {
   Sheet,
   SheetContent,
@@ -12,12 +16,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@wealthfolio/ui/components/ui/sheet";
-import { Alert, AlertDescription } from "@wealthfolio/ui/components/ui/alert";
-import { ScrollArea } from "@wealthfolio/ui/components/ui/scroll-area";
-import { updateAccount } from "@/adapters";
-import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { Account, TrackingMode } from "@/lib/types";
 import { syncBrokerData } from "../services/broker-service";
 
 export interface NewAccountInfo {
@@ -93,6 +93,7 @@ export function NewAccountsFoundModal({
           isActive: acc.isActive,
           isArchived: acc.isArchived,
           trackingMode: setup.trackingMode,
+          taxTreatment: "TAXABLE" as "TAXABLE" | "TAX_FREE" | "TAX_DEFERRED",
         });
       }
 

@@ -8,10 +8,10 @@ import { calculatePerformanceMetrics } from "@/lib/utils";
 import { GainAmount, GainPercent, PrivacyAmount } from "@wealthfolio/ui";
 import { Button } from "@wealthfolio/ui/components/ui/button";
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from "@wealthfolio/ui/components/ui/dropdown-menu";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { Separator } from "@wealthfolio/ui/components/ui/separator";
@@ -221,7 +221,7 @@ interface TaxTreatmentTotal {
 }
 
 const TaxTreatmentSummary = React.memo(
-  ({ accounts, isLoading }: { accounts: AccountSummaryDisplayData[]; isLoading: boolean }) => {
+  ({ accounts }: { accounts: AccountSummaryDisplayData[] }) => {
     const taxTotals = useMemo(() => {
       const totals: Record<string, TaxTreatmentTotal> = {};
 
@@ -310,7 +310,7 @@ const TaxTreatmentSummary = React.memo(
 TaxTreatmentSummary.displayName = "TaxTreatmentSummary";
 
 export const AccountsSummary = React.memo(() => {
-  const { accountsGrouped, setAccountsGrouped, settings, groupingMode, setGroupingMode } = useSettingsContext();
+  const { settings, groupingMode, setGroupingMode } = useSettingsContext();
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const {
@@ -347,7 +347,7 @@ export const AccountsSummary = React.memo(() => {
           accountId: acc.id,
           accountType: acc.accountType,
           accountGroup: acc.group ?? null,
-          taxTreatment: acc.taxTreatment ?? "TAXABLE",
+          taxTreatment: (acc.taxTreatment ?? "TAXABLE") as "TAXABLE" | "TAX_FREE" | "TAX_DEFERRED",
           isGroup: false,
         };
       }
@@ -372,7 +372,7 @@ export const AccountsSummary = React.memo(() => {
         accountId: acc.id,
         accountType: acc.accountType,
         accountGroup: acc.group ?? null,
-        taxTreatment: acc.taxTreatment ?? "TAXABLE",
+        taxTreatment: (acc.taxTreatment ?? "TAXABLE") as "TAXABLE" | "TAX_FREE" | "TAX_DEFERRED",
         isGroup: false,
       };
     });
