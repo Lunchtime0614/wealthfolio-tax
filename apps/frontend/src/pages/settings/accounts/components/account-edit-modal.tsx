@@ -1,7 +1,7 @@
-import { Dialog, DialogContent } from "@wealthfolio/ui/components/ui/dialog";
 import { useIsMobileViewport } from "@/hooks/use-platform";
 import { useSettingsContext } from "@/lib/settings-provider";
 import type { Account } from "@/lib/types";
+import { Dialog, DialogContent } from "@wealthfolio/ui/components/ui/dialog";
 import { AccountForm } from "./account-form";
 
 export interface AccountEditModalProps {
@@ -24,6 +24,7 @@ export function AccountEditModal({ account, open, onClose }: AccountEditModalPro
     isActive: account?.id ? account?.isActive : true,
     isArchived: account?.isArchived ?? false,
     trackingMode: account?.trackingMode,
+    taxTreatment: account?.taxTreatment ?? "TAXABLE",
     meta: account?.meta,
   };
 

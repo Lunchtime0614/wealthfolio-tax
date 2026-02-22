@@ -31,6 +31,7 @@ interface AccountSummaryDisplayData {
   accountId?: string;
   accountType?: string;
   accountGroup?: string | null;
+  taxTreatment?: string;
   isGroup?: boolean;
   accountCount?: number;
   accounts?: AccountSummaryDisplayData[];
