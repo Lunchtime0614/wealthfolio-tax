@@ -31,7 +31,7 @@ interface AccountSummaryDisplayData {
   accountId?: string;
   accountType?: string;
   accountGroup?: string | null;
-  taxTreatment?: string;
+  taxTreatment?: "TAXABLE" | "TAX_FREE" | "TAX_DEFERRED";
   isGroup?: boolean;
   accountCount?: number;
   accounts?: AccountSummaryDisplayData[];

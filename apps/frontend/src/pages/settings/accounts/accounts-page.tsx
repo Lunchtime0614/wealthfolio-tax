@@ -4,13 +4,13 @@ import { QueryKeys } from "@/lib/query-keys";
 import type { Account, Platform } from "@/lib/types";
 import { useQuery } from "@tanstack/react-query";
 import {
-    Button,
-    EmptyPlaceholder,
-    Icons,
-    Separator,
-    Skeleton,
-    ToggleGroup,
-    ToggleGroupItem,
+  Button,
+  EmptyPlaceholder,
+  Icons,
+  Separator,
+  Skeleton,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@wealthfolio/ui";
 import { Input } from "@wealthfolio/ui/components/ui/input";
 import { useMemo, useState } from "react";
@@ -59,7 +59,7 @@ const SettingsAccountsPage = () => {
   const handleArchiveAccount = (account: Account, archive: boolean) => {
     updateAccountMutation.mutate({
       ...account,
-      taxTreatment: account.taxTreatment || "TAXABLE",
+      taxTreatment: (account.taxTreatment || "TAXABLE") as "TAXABLE" | "TAX_FREE" | "TAX_DEFERRED",
       isArchived: archive,
     });
   };
@@ -67,7 +67,7 @@ const SettingsAccountsPage = () => {
   const handleHideAccount = (account: Account, hide: boolean) => {
     updateAccountMutation.mutate({
       ...account,
-      taxTreatment: account.taxTreatment || "TAXABLE",
+      taxTreatment: (account.taxTreatment || "TAXABLE") as "TAXABLE" | "TAX_FREE" | "TAX_DEFERRED",
       isActive: !hide,
     });
   };

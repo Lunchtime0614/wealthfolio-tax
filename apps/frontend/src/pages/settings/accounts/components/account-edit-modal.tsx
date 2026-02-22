@@ -24,7 +24,7 @@ export function AccountEditModal({ account, open, onClose }: AccountEditModalPro
     isActive: account?.id ? account?.isActive : true,
     isArchived: account?.isArchived ?? false,
     trackingMode: account?.trackingMode,
-    taxTreatment: account?.taxTreatment ?? "TAXABLE",
+    taxTreatment: (account?.taxTreatment ?? "TAXABLE") as "TAXABLE" | "TAX_FREE" | "TAX_DEFERRED",
     meta: account?.meta,
   };
 
