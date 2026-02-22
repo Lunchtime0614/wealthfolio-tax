@@ -1,40 +1,33 @@
 import { importActivitySchema, importMappingSchema, parseConfigSchema } from "@/lib/schemas";
 import * as z from "zod";
 import {
-  AccountType,
-  ActivityStatus,
-  ActivityType,
-  ACTIVITY_TYPE_DISPLAY_NAMES,
-  AssetKind,
-  HoldingType,
-  QuoteMode,
-  SUBTYPE_DISPLAY_NAMES,
+    AccountType,
+    ACTIVITY_TYPE_DISPLAY_NAMES,
+    ActivityStatus,
+    ActivityType,
+    AssetKind,
+    HoldingType,
+    QuoteMode,
+    SUBTYPE_DISPLAY_NAMES,
 } from "./constants";
 
 export {
-  AccountType,
-  ActivityStatus,
-  ActivityType,
-  ACTIVITY_SUBTYPES,
-  ACTIVITY_TYPE_DISPLAY_NAMES,
-  ACTIVITY_TYPES,
-  AlternativeAssetKind,
-  ALTERNATIVE_ASSET_DEFAULT_GROUPS,
-  ALTERNATIVE_ASSET_KIND_DISPLAY_NAMES,
-  AssetKind,
-  ASSET_KIND_DISPLAY_NAMES,
-  DataSource,
-  defaultGroupForAccountType,
-  ExportDataType,
-  ExportedFileFormat,
-  HOLDING_CATEGORY_FILTERS,
-  HOLDING_GROUP_DISPLAY_NAMES,
-  HOLDING_GROUP_ORDER,
-  HoldingType,
-  ImportFormat,
-  PricingMode,
-  QuoteMode,
-  SUBTYPE_DISPLAY_NAMES,
+    AccountType, ACTIVITY_SUBTYPES,
+    ACTIVITY_TYPE_DISPLAY_NAMES,
+    ACTIVITY_TYPES, ActivityStatus,
+    ActivityType, ALTERNATIVE_ASSET_DEFAULT_GROUPS,
+    ALTERNATIVE_ASSET_KIND_DISPLAY_NAMES, AlternativeAssetKind, ASSET_KIND_DISPLAY_NAMES, AssetKind, DataSource,
+    defaultGroupForAccountType,
+    ExportDataType,
+    ExportedFileFormat,
+    HOLDING_CATEGORY_FILTERS,
+    HOLDING_GROUP_DISPLAY_NAMES,
+    HOLDING_GROUP_ORDER,
+    HoldingType,
+    ImportFormat,
+    PricingMode,
+    QuoteMode,
+    SUBTYPE_DISPLAY_NAMES
 } from "./constants";
 
 export type { HoldingCategoryFilterId } from "./constants";
@@ -52,6 +45,7 @@ export interface Account {
   isActive: boolean;
   isArchived: boolean;
   trackingMode: TrackingMode;
+  taxTreatment?: string; // Optional - tax classification (TAXABLE, TAX_FREE, TAX_DEFERRED)
   createdAt: Date;
   updatedAt: Date;
   platformId?: string; // Optional - links to platform/broker
@@ -638,6 +632,8 @@ export interface SettingsContextType {
   updateBaseCurrency: (currency: Settings["baseCurrency"]) => Promise<void>;
   accountsGrouped: boolean;
   setAccountsGrouped: (value: boolean) => void;
+  groupingMode: "none" | "accountGroup" | "taxTreatment";
+  setGroupingMode: (mode: "none" | "accountGroup" | "taxTreatment") => void;
 }
 
 export interface Goal {
@@ -712,6 +708,7 @@ export interface AccountSummaryView {
   accountName: string;
   accountType: string;
   accountGroup: string | null;
+  taxTreatment: string;
   accountCurrency: string;
   totalValueAccountCurrency: number;
   totalValueBaseCurrency: number;

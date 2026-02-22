@@ -1,46 +1,46 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useCallback, useState } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
-import { useState, useCallback } from "react";
 
 import { Button } from "@wealthfolio/ui/components/ui/button";
 import { Checkbox } from "@wealthfolio/ui/components/ui/checkbox";
 
+import { newAccountSchema } from "@/lib/schemas";
 import {
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+    CurrencyInput,
+    RadioGroup,
+    RadioGroupItem,
+    ResponsiveSelect,
+    type ResponsiveSelectOption,
+} from "@wealthfolio/ui";
+import { Alert, AlertDescription } from "@wealthfolio/ui/components/ui/alert";
+import {
+    AlertDialog,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@wealthfolio/ui/components/ui/alert-dialog";
+import {
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
 } from "@wealthfolio/ui/components/ui/dialog";
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
+    Form,
+    FormControl,
+    FormField,
+    FormItem,
+    FormLabel,
+    FormMessage,
 } from "@wealthfolio/ui/components/ui/form";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { Input } from "@wealthfolio/ui/components/ui/input";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@wealthfolio/ui/components/ui/alert-dialog";
-import { newAccountSchema } from "@/lib/schemas";
-import {
-  CurrencyInput,
-  RadioGroup,
-  RadioGroupItem,
-  ResponsiveSelect,
-  type ResponsiveSelectOption,
-} from "@wealthfolio/ui";
-import { Alert, AlertDescription } from "@wealthfolio/ui/components/ui/alert";
 
 import { useAccountMutations } from "./use-account-mutations";
 
@@ -302,6 +302,32 @@ export function AccountForm({ defaultValues, onSuccess = () => undefined }: Acco
                     </AlertDescription>
                   </Alert>
                 )}
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="taxTreatment"
+            render={({ field }) => (
+              <FormItem className="flex flex-col">
+                <FormLabel>Tax Treatment</FormLabel>
+                <FormControl>
+                  <ResponsiveSelect
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    options={[
+                      { label: "Taxable", value: "TAXABLE" },
+                      { label: "Tax-Free", value: "TAX_FREE" },
+                      { label: "Tax-Deferred", value: "TAX_DEFERRED" },
+                    ]}
+                    placeholder="Select tax treatment"
+                    sheetTitle="Select Tax Treatment"
+                    sheetDescription="Choose how this account is taxed."
+                    triggerClassName="h-11"
+                  />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}

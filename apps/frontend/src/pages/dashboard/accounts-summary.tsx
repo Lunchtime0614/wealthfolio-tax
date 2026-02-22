@@ -7,6 +7,12 @@ import type { AccountValuation } from "@/lib/types";
 import { calculatePerformanceMetrics } from "@/lib/utils";
 import { GainAmount, GainPercent, PrivacyAmount } from "@wealthfolio/ui";
 import { Button } from "@wealthfolio/ui/components/ui/button";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@wealthfolio/ui/components/ui/dropdown-menu";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { Separator } from "@wealthfolio/ui/components/ui/separator";
 import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
@@ -205,8 +211,105 @@ const AccountSummaryComponent = React.memo(
 );
 AccountSummaryComponent.displayName = "AccountSummaryComponent";
 
+interface TaxTreatmentTotal {
+  treatment: string;
+  totalValue: number;
+  totalGainLoss: number | null;
+  totalGainLossPercent: number | null;
+  accountCount: number;
+}
+
+const TaxTreatmentSummary = React.memo(
+  ({ accounts, isLoading }: { accounts: AccountSummaryDisplayData[]; isLoading: boolean }) => {
+    const taxTotals = useMemo(() => {
+      const totals: Record<string, TaxTreatmentTotal> = {};
+
+      accounts.forEach((account) => {
+        const treatment = account.taxTreatment || "TAXABLE";
+        if (!totals[treatment]) {
+          totals[treatment] = {
+            treatment,
+            totalValue: 0,
+            totalGainLoss: 0,
+            totalGainLossPercent: null,
+            accountCount: 0,
+          };
+        }
+        totals[treatment].totalValue += account.totalValueBaseCurrency;
+        totals[treatment].totalGainLoss =
+          (totals[treatment].totalGainLoss ?? 0) + (account.totalGainLossAmountBaseCurrency ?? 0);
+        totals[treatment].accountCount += 1;
+      });
+
+      // Calculate weighted average return for each treatment
+      Object.values(totals).forEach((total) => {
+        if (total.totalValue - (total.totalGainLoss ?? 0) !== 0) {
+          total.totalGainLossPercent =
+            (total.totalGainLoss ?? 0) / (total.totalValue - (total.totalGainLoss ?? 0));
+        }
+      });
+
+      return Object.values(totals).sort(
+        (a, b) => b.totalValue - a.totalValue,
+      );
+    }, [accounts]);
+
+    const baseCurrency = "USD"; // You could get this from settings
+
+    return (
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold">Tax Treatment Summary</h3>
+        <div className="grid gap-2 md:grid-cols-3">
+          {taxTotals.map((total) => (
+            <div
+              key={total.treatment}
+              className="border-border bg-card shadow-xs rounded-lg border p-3 md:p-4"
+            >
+              <p className="text-xs text-muted-foreground mb-2">
+                {total.treatment
+                  .split("_")
+                  .map((word) => word.charAt(0) + word.slice(1).toLowerCase())
+                  .join(" ")}
+              </p>
+              <div className="flex items-end justify-between gap-2">
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-semibold leading-tight md:text-base">
+                    <PrivacyAmount value={total.totalValue} currency={baseCurrency} />
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {total.accountCount} {total.accountCount === 1 ? "account" : "accounts"}
+                  </p>
+                </div>
+                {(total.totalGainLoss !== null || total.totalGainLossPercent !== null) &&
+                  !(total.totalGainLoss === 0 && total.totalGainLossPercent === 0) && (
+                    <div className="flex flex-col items-end gap-1">
+                      {total.totalGainLoss !== null && (
+                        <GainAmount
+                          className="text-xs font-medium md:text-sm"
+                          value={total.totalGainLoss ?? 0}
+                          currency={baseCurrency}
+                        />
+                      )}
+                      {total.totalGainLossPercent !== null && (
+                        <GainPercent
+                          className="text-xs font-medium md:text-sm"
+                          value={total.totalGainLossPercent ?? 0}
+                        />
+                      )}
+                    </div>
+                  )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  },
+);
+TaxTreatmentSummary.displayName = "TaxTreatmentSummary";
+
 export const AccountsSummary = React.memo(() => {
-  const { accountsGrouped, setAccountsGrouped, settings } = useSettingsContext();
+  const { accountsGrouped, setAccountsGrouped, settings, groupingMode, setGroupingMode } = useSettingsContext();
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const {
@@ -243,6 +346,7 @@ export const AccountsSummary = React.memo(() => {
           accountId: acc.id,
           accountType: acc.accountType,
           accountGroup: acc.group ?? null,
+          taxTreatment: acc.taxTreatment ?? "TAXABLE",
           isGroup: false,
         };
       }
@@ -267,6 +371,7 @@ export const AccountsSummary = React.memo(() => {
         accountId: acc.id,
         accountType: acc.accountType,
         accountGroup: acc.group ?? null,
+        taxTreatment: acc.taxTreatment ?? "TAXABLE",
         isGroup: false,
       };
     });
@@ -279,63 +384,26 @@ export const AccountsSummary = React.memo(() => {
     }));
   }, []);
 
-  const renderedContent = useMemo(() => {
-    if (isLoadingAccounts) {
-      return Array.from({ length: 4 }).map((_, index) => (
-        <div
-          key={`skeleton-${index}`}
-          className="border-border bg-card shadow-xs rounded-lg border px-4 py-3 md:px-5 md:py-4"
-        >
-          <AccountSummarySkeleton />
-        </div>
-      ));
-    }
-
-    if (isErrorAccounts) {
-      return (
-        <div className="border-destructive/30 bg-destructive/5 rounded-lg border p-4 md:p-5">
-          <div className="flex items-start gap-3">
-            <div className="bg-destructive/10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full">
-              <Icons.AlertTriangle className="text-destructive h-4 w-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-destructive text-sm font-medium">Failed to load accounts</p>
-              <p className="text-muted-foreground mt-1 break-words text-xs">
-                {errorAccounts?.message || "An unexpected error occurred"}
-              </p>
-              <p className="text-muted-foreground mt-2 text-xs">
-                Try restarting the app. If this persists, your database may need to be reset.
-              </p>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    if (!combinedAccountViews || combinedAccountViews.length === 0) {
-      return (
-        <div className="border-border/50 bg-success/10 rounded-lg border p-6 text-center md:p-8">
-          <p className="text-sm">No accounts found.</p>
-          <Link
-            to="/settings/accounts"
-            className="text-muted-foreground hover:text-foreground mt-2 inline-flex items-center gap-1 text-xs underline-offset-4 hover:underline"
-          >
-            Add your first account
-            <Icons.ChevronRight className="h-3 w-3" />
-          </Link>
-        </div>
-      );
-    }
-
-    const isLoadingPerformance = isLoadingValuations;
-
-    if (accountsGrouped) {
+  const createGroups = useCallback(
+    (accounts: AccountSummaryDisplayData[], fieldToGroupBy: "accountGroup" | "taxTreatment") => {
       const groups: Record<string, AccountSummaryDisplayData[]> = {};
       const standaloneAccounts: AccountSummaryDisplayData[] = [];
 
-      combinedAccountViews.forEach((account) => {
-        const groupName = account.accountGroup ?? "Uncategorized";
-        if (groupName === "Uncategorized") {
+      accounts.forEach((account) => {
+        const groupName =
+          fieldToGroupBy === "accountGroup"
+            ? account.accountGroup ?? "Uncategorized"
+            : account.taxTreatment
+              ? account.taxTreatment
+                  .split("_")
+                  .map((word) => word.charAt(0) + word.slice(1).toLowerCase())
+                  .join(" ")
+              : "Uncategorized";
+
+        if (
+          (fieldToGroupBy === "accountGroup" && groupName === "Uncategorized") ||
+          (fieldToGroupBy === "taxTreatment" && groupName === "Uncategorized")
+        ) {
           standaloneAccounts.push(account);
         } else {
           if (!groups[groupName]) {
@@ -432,6 +500,67 @@ export const AccountsSummary = React.memo(() => {
         }
       });
 
+      return { actualGroups, standaloneAccounts };
+    },
+    [settings?.baseCurrency],
+  );
+
+  const renderedContent = useMemo(() => {
+    if (isLoadingAccounts) {
+      return Array.from({ length: 4 }).map((_, index) => (
+        <div
+          key={`skeleton-${index}`}
+          className="border-border bg-card shadow-xs rounded-lg border px-4 py-3 md:px-5 md:py-4"
+        >
+          <AccountSummarySkeleton />
+        </div>
+      ));
+    }
+
+    if (isErrorAccounts) {
+      return (
+        <div className="border-destructive/30 bg-destructive/5 rounded-lg border p-4 md:p-5">
+          <div className="flex items-start gap-3">
+            <div className="bg-destructive/10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full">
+              <Icons.AlertTriangle className="text-destructive h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-destructive text-sm font-medium">Failed to load accounts</p>
+              <p className="text-muted-foreground mt-1 break-words text-xs">
+                {errorAccounts?.message || "An unexpected error occurred"}
+              </p>
+              <p className="text-muted-foreground mt-2 text-xs">
+                Try restarting the app. If this persists, your database may need to be reset.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (!combinedAccountViews || combinedAccountViews.length === 0) {
+      return (
+        <div className="border-border/50 bg-success/10 rounded-lg border p-6 text-center md:p-8">
+          <p className="text-sm">No accounts found.</p>
+          <Link
+            to="/settings/accounts"
+            className="text-muted-foreground hover:text-foreground mt-2 inline-flex items-center gap-1 text-xs underline-offset-4 hover:underline"
+          >
+            Add your first account
+            <Icons.ChevronRight className="h-3 w-3" />
+          </Link>
+        </div>
+      );
+    }
+
+    const isLoadingPerformance = isLoadingValuations;
+
+    if (groupingMode === "accountGroup" || groupingMode === "taxTreatment") {
+      const { actualGroups, standaloneAccounts } = createGroups(
+        combinedAccountViews,
+        groupingMode,
+      );
+
       actualGroups.sort(
         (a, b) => Number(b.totalValueBaseCurrency) - Number(a.totalValueBaseCurrency),
       );
@@ -504,7 +633,7 @@ export const AccountsSummary = React.memo(() => {
     }
   }, [
     combinedAccountViews,
-    accountsGrouped,
+    groupingMode,
     expandedGroups,
     toggleGroup,
     isLoadingAccounts,
@@ -512,29 +641,56 @@ export const AccountsSummary = React.memo(() => {
     isErrorAccounts,
     errorAccounts,
     settings?.baseCurrency,
+    createGroups,
   ]);
 
   return (
     <div className="mb-4 w-full space-y-0">
       <div className="flex flex-row items-center justify-between gap-2 pb-2">
         <h2 className="text-md font-semibold tracking-tight">Accounts</h2>
-        <Button
-          variant="outline"
-          className="hover:bg-success/10 rounded-lg bg-transparent transition-colors duration-150"
-          size="sm"
-          onClick={() => setAccountsGrouped(!accountsGrouped)}
-          aria-label={accountsGrouped ? "List view" : "Group view"}
-          title={accountsGrouped ? "Switch to list view" : "Switch to group view"}
-          disabled={isLoadingAccounts || combinedAccountViews.length === 0}
-        >
-          {accountsGrouped ? (
-            <Icons.ListCollapse className="h-4 w-4" />
-          ) : (
-            <Icons.Group className="h-4 w-4" />
-          )}
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              className="hover:bg-success/10 rounded-lg bg-transparent transition-colors duration-150"
+              size="sm"
+              aria-label="Group view options"
+              title="Choose how to group accounts"
+              disabled={isLoadingAccounts || combinedAccountViews.length === 0}
+            >
+              {groupingMode === "accountGroup" && <Icons.Folder className="h-4 w-4" />}
+              {groupingMode === "taxTreatment" && <Icons.Tag className="h-4 w-4" />}
+              {groupingMode === "none" && <Icons.List className="h-4 w-4" />}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setGroupingMode("accountGroup")}>
+              <Icons.Folder className="mr-2 h-4 w-4" />
+              <span>Group by Account Type</span>
+              {groupingMode === "accountGroup" && <Icons.Check className="ml-auto h-4 w-4" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setGroupingMode("taxTreatment")}>
+              <Icons.Tag className="mr-2 h-4 w-4" />
+              <span>Group by Tax Treatment</span>
+              {groupingMode === "taxTreatment" && <Icons.Check className="ml-auto h-4 w-4" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setGroupingMode("none")}>
+              <Icons.List className="mr-2 h-4 w-4" />
+              <span>List View</span>
+              {groupingMode === "none" && <Icons.Check className="ml-auto h-4 w-4" />}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <div className="space-y-2 md:space-y-3">{renderedContent}</div>
+      {combinedAccountViews.length > 0 && (
+        <div className="mt-6 pt-4 border-t border-border">
+          <TaxTreatmentSummary
+            accounts={combinedAccountViews}
+            isLoading={isLoadingAccounts || isLoadingValuations}
+          />
+        </div>
+      )}
     </div>
   );
 });

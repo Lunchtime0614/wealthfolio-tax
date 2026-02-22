@@ -1,14 +1,14 @@
 import * as z from "zod";
-import { ActivityType, activityTypeSchema, accountTypeSchema } from "./constants";
-import { tryParseDate } from "./utils";
 import {
-  isCashActivity,
-  isIncomeActivity,
-  isCashTransfer,
-  isTradeActivity,
-  isFeeActivity,
-  isSplitActivity,
+    isCashActivity,
+    isCashTransfer,
+    isFeeActivity,
+    isIncomeActivity,
+    isSplitActivity,
+    isTradeActivity,
 } from "./activity-utils";
+import { accountTypeSchema, ActivityType, activityTypeSchema } from "./constants";
+import { tryParseDate } from "./utils";
 
 /**
  * Configuration for CSV parsing (delimiter, date format, etc.)
@@ -81,6 +81,7 @@ export const newAccountSchema = z.object({
   accountType: accountTypeSchema,
   currency: z.string({ required_error: "Please select a currency." }),
   trackingMode: trackingModeSchema.optional().default("NOT_SET"),
+  taxTreatment: z.enum(["TAXABLE", "TAX_FREE", "TAX_DEFERRED"]).optional().default("TAXABLE"),
   meta: z.string().nullable().optional(),
 });
 
