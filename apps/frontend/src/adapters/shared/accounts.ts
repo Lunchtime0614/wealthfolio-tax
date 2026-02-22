@@ -1,9 +1,9 @@
 // Account Commands
-import type { Account } from "@/lib/types";
 import type { newAccountSchema } from "@/lib/schemas";
+import type { Account } from "@/lib/types";
 import type z from "zod";
 
-import { invoke, logger, isDesktop } from "./platform";
+import { invoke, isDesktop, logger } from "./platform";
 
 type NewAccount = z.infer<typeof newAccountSchema>;
 
@@ -34,7 +34,10 @@ export const updateAccount = async (account: NewAccount): Promise<Account> => {
           return rest;
         })()
       : account;
-    return await invoke<Account>("update_account", { accountUpdate: payload });
+    // Remove taxTreatment from payload if not explicitly provided (will be preserved by backend)
+    const { taxTreatment, ...updatePayload } = payload;
+    const finalPayload = taxTreatment ? { ...updatePayload, taxTreatment } : updatePayload;
+    return await invoke<Account>("update_account", { accountUpdate: finalPayload });
   } catch (error) {
     logger.error("Error updating account.");
     throw error;

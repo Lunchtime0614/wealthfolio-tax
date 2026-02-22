@@ -86,24 +86,35 @@ export function AccountForm({ defaultValues, onSuccess = () => undefined }: Acco
   // Returns a promise when updating so it can be chained with other operations
   const doSubmit = useCallback(
     (data: AccountFormOutput, options?: { async?: boolean }) => {
-      const { id, trackingMode, ...rest } = data;
+      const { id, trackingMode, taxTreatment, ...rest } = data;
 
       if (id) {
         if (options?.async) {
           return updateAccountMutation.mutateAsync({
             id,
             trackingMode,
+            taxTreatment,
             ...rest,
           });
         }
-        return updateAccountMutation.mutate({ id, trackingMode, ...rest });
+        return updateAccountMutation.mutate({ id, trackingMode, taxTreatment, ...rest });
       }
-      return createAccountMutation.mutate({ trackingMode, ...rest });
+      return createAccountMutation.mutate({ trackingMode, taxTreatment, ...rest });
     },
     [createAccountMutation, updateAccountMutation],
   );
 
   function onSubmit(data: AccountFormOutput) {
+    // Validate tax treatment is selected for new accounts
+    const isNewAccount = !data.id;
+    if (isNewAccount && !data.taxTreatment) {
+      form.setError("taxTreatment", {
+        type: "manual",
+        message: "Please select a tax treatment.",
+      });
+      return;
+    }
+
     // Check if this is an existing account (update) and mode is switching from HOLDINGS to TRANSACTIONS
     const isExistingAccount = !!data.id;
     const isSwitchingFromHoldingsToTransactions =

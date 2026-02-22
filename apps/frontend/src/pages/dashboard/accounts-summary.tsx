@@ -8,10 +8,10 @@ import { calculatePerformanceMetrics } from "@/lib/utils";
 import { GainAmount, GainPercent, PrivacyAmount } from "@wealthfolio/ui";
 import { Button } from "@wealthfolio/ui/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
 } from "@wealthfolio/ui/components/ui/dropdown-menu";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { Separator } from "@wealthfolio/ui/components/ui/separator";
@@ -220,10 +220,11 @@ interface TaxTreatmentTotal {
   accountCount: number;
 }
 
-const TaxTreatmentSummary = React.memo(
-  ({ accounts }: { accounts: AccountSummaryDisplayData[] }) => {
+const GroupTaxTreatmentSummary = React.memo(
+  ({ accounts, baseCurrency }: { accounts: AccountSummaryDisplayData[]; baseCurrency: string }) => {
     const taxTotals = useMemo(() => {
       const totals: Record<string, TaxTreatmentTotal> = {};
+      const totalGroupValue = accounts.reduce((sum, acc) => sum + acc.totalValueBaseCurrency, 0);
 
       accounts.forEach((account) => {
         const treatment = account.taxTreatment || "TAXABLE";
@@ -250,54 +251,44 @@ const TaxTreatmentSummary = React.memo(
         }
       });
 
-      return Object.values(totals).sort(
-        (a, b) => b.totalValue - a.totalValue,
-      );
+      return Object.values(totals)
+        .sort((a, b) => b.totalValue - a.totalValue)
+        .map((total) => ({
+          ...total,
+          percentOfGroup: totalGroupValue > 0 ? (total.totalValue / totalGroupValue) * 100 : 0,
+        }));
     }, [accounts]);
 
-    const baseCurrency = "USD"; // You could get this from settings
-
     return (
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold">Tax Treatment Summary</h3>
-        <div className="grid gap-2 md:grid-cols-3">
+      <div className="space-y-2 px-4 py-3 md:px-5 md:py-4">
+        <p className="text-xs font-semibold text-muted-foreground mb-3">Tax Treatment Breakdown</p>
+        <div className="grid gap-2">
           {taxTotals.map((total) => (
             <div
               key={total.treatment}
-              className="border-border bg-card shadow-xs rounded-lg border p-3 md:p-4"
+              className="flex items-center justify-between gap-3 rounded p-2 bg-muted/30"
             >
-              <p className="text-xs text-muted-foreground mb-2">
-                {total.treatment
-                  .split("_")
-                  .map((word) => word.charAt(0) + word.slice(1).toLowerCase())
-                  .join(" ")}
-              </p>
-              <div className="flex items-end justify-between gap-2">
-                <div className="flex flex-col gap-1">
-                  <p className="text-sm font-semibold leading-tight md:text-base">
-                    <PrivacyAmount value={total.totalValue} currency={baseCurrency} />
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {total.accountCount} {total.accountCount === 1 ? "account" : "accounts"}
-                  </p>
-                </div>
+              <div className="flex flex-col gap-1 flex-1 min-w-0">
+                <p className="text-xs font-medium">
+                  {total.treatment
+                    .split("_")
+                    .map((word) => word.charAt(0) + word.slice(1).toLowerCase())
+                    .join(" ")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {total.percentOfGroup.toFixed(1)}% of group
+                </p>
+              </div>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <p className="text-xs font-semibold">
+                  <PrivacyAmount value={total.totalValue} currency={baseCurrency} />
+                </p>
                 {(total.totalGainLoss !== null || total.totalGainLossPercent !== null) &&
                   !(total.totalGainLoss === 0 && total.totalGainLossPercent === 0) && (
-                    <div className="flex flex-col items-end gap-1">
-                      {total.totalGainLoss !== null && (
-                        <GainAmount
-                          className="text-xs font-medium md:text-sm"
-                          value={total.totalGainLoss ?? 0}
-                          currency={baseCurrency}
-                        />
-                      )}
-                      {total.totalGainLossPercent !== null && (
-                        <GainPercent
-                          className="text-xs font-medium md:text-sm"
-                          value={total.totalGainLossPercent ?? 0}
-                        />
-                      )}
-                    </div>
+                    <GainPercent
+                      className="text-xs font-medium"
+                      value={total.totalGainLossPercent ?? 0}
+                    />
                   )}
               </div>
             </div>
@@ -307,7 +298,7 @@ const TaxTreatmentSummary = React.memo(
     );
   },
 );
-TaxTreatmentSummary.displayName = "TaxTreatmentSummary";
+GroupTaxTreatmentSummary.displayName = "GroupTaxTreatmentSummary";
 
 export const AccountsSummary = React.memo(() => {
   const { settings, groupingMode, setGroupingMode } = useSettingsContext();
@@ -603,6 +594,15 @@ export const AccountsSummary = React.memo(() => {
                         </div>
                       ))}
                     </div>
+                    {groupingMode === "accountGroup" && (
+                      <>
+                        <div className="border-border/50 border-t" />
+                        <GroupTaxTreatmentSummary
+                          accounts={sortedAccounts}
+                          baseCurrency={group.baseCurrency}
+                        />
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -684,13 +684,6 @@ export const AccountsSummary = React.memo(() => {
         </DropdownMenu>
       </div>
       <div className="space-y-2 md:space-y-3">{renderedContent}</div>
-      {combinedAccountViews.length > 0 && (
-        <div className="mt-6 pt-4 border-t border-border">
-          <TaxTreatmentSummary
-            accounts={combinedAccountViews}
-          />
-        </div>
-      )}
     </div>
   );
 });

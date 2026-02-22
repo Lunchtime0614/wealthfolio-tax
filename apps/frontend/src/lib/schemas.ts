@@ -81,7 +81,7 @@ export const newAccountSchema = z.object({
   accountType: accountTypeSchema,
   currency: z.string({ required_error: "Please select a currency." }),
   trackingMode: trackingModeSchema.optional().default("NOT_SET"),
-  taxTreatment: z.enum(["TAXABLE", "TAX_FREE", "TAX_DEFERRED"]).optional().default("TAXABLE"),
+  taxTreatment: z.enum(["TAXABLE", "TAX_FREE", "TAX_DEFERRED"]).optional(),
   meta: z.string().nullable().optional(),
 });
 

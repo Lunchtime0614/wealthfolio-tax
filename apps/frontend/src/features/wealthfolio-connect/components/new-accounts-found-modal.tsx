@@ -9,12 +9,12 @@ import { Input } from "@wealthfolio/ui/components/ui/input";
 import { Label } from "@wealthfolio/ui/components/ui/label";
 import { ScrollArea } from "@wealthfolio/ui/components/ui/scroll-area";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
+    Sheet,
+    SheetContent,
+    SheetDescription,
+    SheetFooter,
+    SheetHeader,
+    SheetTitle,
 } from "@wealthfolio/ui/components/ui/sheet";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -93,7 +93,7 @@ export function NewAccountsFoundModal({
           isActive: acc.isActive,
           isArchived: acc.isArchived,
           trackingMode: setup.trackingMode,
-          taxTreatment: "TAXABLE" as "TAXABLE" | "TAX_FREE" | "TAX_DEFERRED",
+          // Note: taxTreatment is preserved if not explicitly set in update
         });
       }
 

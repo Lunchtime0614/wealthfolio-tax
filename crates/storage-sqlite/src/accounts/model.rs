@@ -4,7 +4,7 @@ use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use wealthfolio_core::accounts::{Account, AccountUpdate, NewAccount, TrackingMode, TaxTreatment};
+use wealthfolio_core::accounts::{Account, AccountUpdate, NewAccount, TaxTreatment, TrackingMode};
 
 /// Database model for accounts
 #[derive(
@@ -118,10 +118,11 @@ impl From<AccountUpdate> for AccountDB {
             })
             .unwrap_or("NOT_SET")
             .to_string();
+        // For tax_treatment, use empty string as placeholder - will be restored from existing if not provided
         let tax_treatment = domain
             .tax_treatment
             .map(|tt| tt.as_str().to_string())
-            .unwrap_or_else(|| "TAXABLE".to_string());
+            .unwrap_or_else(String::new);
         Self {
             id: domain.id.unwrap_or_default(),
             name: domain.name,

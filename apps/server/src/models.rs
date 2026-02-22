@@ -15,6 +15,7 @@ pub struct Account {
     pub is_active: bool,
     pub is_archived: bool,
     pub tracking_mode: String,
+    pub tax_treatment: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub platform_id: Option<String>,
@@ -32,6 +33,7 @@ impl From<core_accounts::Account> for Account {
             core_accounts::TrackingMode::NotSet => "NOT_SET",
         }
         .to_string();
+        let tax_treatment = a.tax_treatment.as_str().to_string();
         Self {
             id: a.id,
             name: a.name,
@@ -42,6 +44,7 @@ impl From<core_accounts::Account> for Account {
             is_active: a.is_active,
             is_archived: a.is_archived,
             tracking_mode,
+            tax_treatment,
             created_at: a.created_at,
             updated_at: a.updated_at,
             platform_id: a.platform_id,
@@ -68,7 +71,6 @@ pub struct NewAccount {
     pub is_archived: bool,
     #[serde(default = "default_tracking_mode")]
     pub tracking_mode: String,
-    #[serde(default = "default_tax_treatment")]
     pub tax_treatment: String,
     pub platform_id: Option<String>,
     pub account_number: Option<String>,
@@ -79,10 +81,6 @@ pub struct NewAccount {
 
 fn default_tracking_mode() -> String {
     "NOT_SET".to_string()
-}
-
-fn default_tax_treatment() -> String {
-    "TAXABLE".to_string()
 }
 
 fn parse_tracking_mode(s: &str) -> core_accounts::TrackingMode {

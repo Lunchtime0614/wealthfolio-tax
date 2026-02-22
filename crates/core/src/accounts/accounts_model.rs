@@ -100,7 +100,6 @@ pub struct NewAccount {
     pub is_archived: bool,
     #[serde(default)]
     pub tracking_mode: TrackingMode,
-    #[serde(default)]
     pub tax_treatment: TaxTreatment,
 }
 
