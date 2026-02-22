@@ -688,7 +688,6 @@ export const AccountsSummary = React.memo(() => {
         <div className="mt-6 pt-4 border-t border-border">
           <TaxTreatmentSummary
             accounts={combinedAccountViews}
-            isLoading={isLoadingAccounts || isLoadingValuations}
           />
         </div>
       )}
