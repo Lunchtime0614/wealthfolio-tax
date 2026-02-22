@@ -95,8 +95,9 @@
   ],
 
   // Mount local workspace folder to container workspace folder
-  "workspaceMount": "source=${localWorkspaceFolder},target=/app/dev/workspace/${localWorkspaceFolderBasename},type=bind",
-  "workspaceFolder": "/app/dev/workspace/${localWorkspaceFolderBasename}",
+  //"workspaceMount": "source=${localWorkspaceFolder},target=/app/dev/workspace/${localWorkspaceFolderBasename},type=bind",
+  //"workspaceFolder": "/app/dev/workspace/${localWorkspaceFolderBasename}",
+    "workspaceFolder": "/workspaces/wealthfolio-tax",
 
   // Mounts to persist data within container
   "mounts": [
