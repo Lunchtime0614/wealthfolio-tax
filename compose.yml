@@ -8,7 +8,8 @@
 
 services:
   wealthfolio:
-    image: afadil/wealthfolio:latest
+    build: .
+    image: wealthfolio-tax:custom
     container_name: wealthfolio
     restart: unless-stopped
     ports:
