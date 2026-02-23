@@ -11,8 +11,8 @@ services:
     image: afadil/wealthfolio:latest
     container_name: wealthfolio
     restart: unless-stopped
-    expose:
-      - "8088"
+    ports:
+      - "8088:8088"
     volumes:
       - wealthfolio-data:/data
     environment:
