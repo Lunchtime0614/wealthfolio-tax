@@ -1,15 +1,15 @@
 import { getIncomeSummary } from "@/adapters";
+import { useBalancePrivacy } from "@/hooks/use-balance-privacy";
 import { Badge } from "@wealthfolio/ui/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@wealthfolio/ui/components/ui/card";
 import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
+    ChartContainer,
+    ChartTooltip,
+    ChartTooltipContent,
 } from "@wealthfolio/ui/components/ui/chart";
 import { EmptyPlaceholder } from "@wealthfolio/ui/components/ui/empty-placeholder";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
-import { useBalancePrivacy } from "@/hooks/use-balance-privacy";
 
 import { QueryKeys } from "@/lib/query-keys";
 import type { IncomeSummary } from "@/lib/types";
@@ -84,7 +84,7 @@ export default function IncomePage() {
   if (!periodSummary || !totalSummary) {
     return (
       <>
-        <div className="pointer-events-auto fixed right-2 top-4 z-20 lg:right-4">
+        <div className="flex justify-end">
           <IncomePeriodSelector
             selectedPeriod={selectedPeriod}
             onPeriodSelect={setSelectedPeriod}
@@ -163,13 +163,8 @@ export default function IncomePage() {
 
   return (
     <>
-      {/* Period selector - fixed position in header area */}
-      <div className="pointer-events-auto fixed right-2 top-4 z-20 hidden md:block lg:right-4">
-        <IncomePeriodSelector selectedPeriod={selectedPeriod} onPeriodSelect={setSelectedPeriod} />
-      </div>
-
       <div className="space-y-6">
-        <div className="flex justify-end md:hidden">
+        <div className="flex justify-end">
           <IncomePeriodSelector
             selectedPeriod={selectedPeriod}
             onPeriodSelect={setSelectedPeriod}

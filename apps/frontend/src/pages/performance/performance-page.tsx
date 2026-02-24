@@ -354,13 +354,8 @@ export default function PerformancePage({ group }: { group?: string }) {
 
   return (
     <>
-      {/* Date range selector - fixed position in header area */}
-      <div className="pointer-events-auto fixed right-2 top-4 z-20 hidden md:block lg:right-4">
-        <DateRangeSelector value={dateRange} onChange={setDateRange} />
-      </div>
-
       <div className="flex h-full flex-col space-y-4">
-        <div className="flex justify-end md:hidden">
+        <div className="flex justify-end">
           <DateRangeSelector value={dateRange} onChange={setDateRange} />
         </div>
 
