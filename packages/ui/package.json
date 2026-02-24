@@ -10,6 +10,14 @@
       "import": "./dist/index.js",
       "types": "./dist/src/index.d.ts"
     },
+    "./components/ui": {
+      "import": "./dist/index.js",
+      "types": "./dist/src/components/ui/index.d.ts"
+    },
+    "./components/ui/*": {
+      "import": "./dist/index.js",
+      "types": "./dist/src/components/ui/*.d.ts"
+    },
     "./chart": {
       "import": "./dist/chart.js",
       "types": "./dist/src/chart.d.ts"

@@ -1,7 +1,6 @@
 import { useBalancePrivacy } from "@/hooks/use-balance-privacy";
 import type { Account, Holding } from "@/lib/types";
-import { AmountDisplay, DonutChart, formatPercent } from "@wealthfolio/ui";
-import { Card, CardContent, CardHeader, CardTitle, Skeleton } from "@wealthfolio/ui/components/ui";
+import { AmountDisplay, Card, CardContent, CardHeader, CardTitle, DonutChart, formatPercent, Skeleton } from "@wealthfolio/ui";
 import { useMemo, useState } from "react";
 
 interface TaxTreatmentDonutChartProps {
