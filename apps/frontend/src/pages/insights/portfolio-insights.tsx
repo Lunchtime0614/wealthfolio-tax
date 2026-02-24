@@ -103,6 +103,25 @@ export default function PortfolioInsightsPage() {
     [accountGroups, selectedAccount, selectedGroup],
   );
 
+  const groupActions = useMemo(
+    () => (
+      <Select value={selectedGroup} onValueChange={setSelectedGroup}>
+        <SelectTrigger className="h-8 min-w-[130px]">
+          <SelectValue placeholder="All groups" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL_GROUP_VALUE}>All groups</SelectItem>
+          {accountGroups.map((groupName) => (
+            <SelectItem key={groupName} value={groupName}>
+              {groupName}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    ),
+    [accountGroups, selectedGroup],
+  );
+
   // Define the views with icons
   const views: SwipablePageView[] = useMemo(
     () => [
@@ -126,6 +145,7 @@ export default function PortfolioInsightsPage() {
             <PerformancePage group={groupFilter} />
           </Suspense>
         ),
+        actions: groupActions,
       },
       {
         value: "income",
@@ -136,9 +156,10 @@ export default function PortfolioInsightsPage() {
             <IncomePage />
           </Suspense>
         ),
+        actions: groupActions,
       },
     ],
-    [accountId, groupFilter, holdingsActions],
+    [accountId, groupActions, groupFilter, holdingsActions],
   );
 
   return <SwipablePage views={views} defaultView="holdings" withPadding={true} />;
