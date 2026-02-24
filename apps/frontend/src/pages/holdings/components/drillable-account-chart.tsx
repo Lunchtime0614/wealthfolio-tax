@@ -2,23 +2,26 @@ import { getAccounts } from "@/adapters";
 import { AllocationBreadcrumb } from "@/components/allocation-breadcrumb";
 import { useAccountsSimplePerformance } from "@/hooks/use-accounts-simple-performance";
 import { useDrillDownState } from "@/hooks/use-drill-down-state";
+import { PORTFOLIO_ACCOUNT_ID } from "@/lib/constants";
 import { QueryKeys } from "@/lib/query-keys";
 import { useSettingsContext } from "@/lib/settings-provider";
 import type { Account } from "@/lib/types";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  DonutChart,
-  EmptyPlaceholder,
-  Skeleton,
+    Card,
+    CardContent,
+    CardHeader,
+    CardTitle,
+    DonutChart,
+    EmptyPlaceholder,
+    Skeleton,
 } from "@wealthfolio/ui";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface DrillableAccountChartProps {
   isLoading?: boolean;
+  accountId?: string;
+  group?: string;
   onAccountClick?: (accountId: string, accountName: string) => void;
 }
 
@@ -29,12 +32,14 @@ interface DrillableAccountChartProps {
  */
 export function DrillableAccountChart({
   isLoading: isLoadingProp,
+  accountId,
+  group,
   onAccountClick,
 }: DrillableAccountChartProps) {
   const { settings } = useSettingsContext();
   const baseCurrency = settings?.baseCurrency ?? "USD";
   const [activeIndex, setActiveIndex] = useState(0);
-  const { path, drillDown, navigateTo, isAtRoot } = useDrillDownState();
+  const { path, drillDown, navigateTo, reset, isAtRoot } = useDrillDownState();
 
   const { data: accounts = [], isLoading: isLoadingAccounts } = useQuery<Account[], Error>({
     queryKey: [QueryKeys.ACCOUNTS],
@@ -46,11 +51,32 @@ export function DrillableAccountChart({
 
   const isLoading = isLoadingProp || isLoadingAccounts || isLoadingPerformance;
 
+  const filteredAccounts = useMemo(() => {
+    if (!accounts?.length) return [];
+
+    return accounts.filter((account) => {
+      if (accountId && accountId !== PORTFOLIO_ACCOUNT_ID && account.id !== accountId) {
+        return false;
+      }
+
+      if (group && account.group?.trim() !== group) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [accounts, accountId, group]);
+
+  useEffect(() => {
+    reset();
+    setActiveIndex(0);
+  }, [accountId, group, reset]);
+
   // Build account data with group info
   const accountsWithValues = useMemo(() => {
-    if (!accounts?.length || !performanceData) return [];
+    if (!filteredAccounts.length || !performanceData) return [];
 
-    return accounts
+    return filteredAccounts
       .map((account) => {
         const perf = performanceData.find((p) => p.accountId === account.id);
         if (!perf) return null;
@@ -71,7 +97,7 @@ export function DrillableAccountChart({
         };
       })
       .filter((a): a is NonNullable<typeof a> => a !== null);
-  }, [accounts, performanceData, baseCurrency]);
+  }, [filteredAccounts, performanceData, baseCurrency]);
 
   // Root level: grouped by account group
   const groupedData = useMemo(() => {

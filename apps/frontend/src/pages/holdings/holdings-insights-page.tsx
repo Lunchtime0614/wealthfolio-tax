@@ -164,7 +164,7 @@ export const HoldingsInsightsPage = ({
             isLoading={isLoading || accountsLoading}
           />
 
-          <DrillableAccountChart isLoading={isLoading} />
+          <DrillableAccountChart isLoading={isLoading} accountId={accountId} group={group} />
 
           <DrillableDonutChart
             title="Classes"
