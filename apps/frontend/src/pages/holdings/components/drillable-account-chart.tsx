@@ -1,13 +1,13 @@
 import { getAccounts } from "@/adapters";
-import { AllocationBreadcrumb } from "@/components/allocation-breadcrumb";
 import { useAccountsSimplePerformance } from "@/hooks/use-accounts-simple-performance";
-import { useDrillDownState } from "@/hooks/use-drill-down-state";
+import { useBalancePrivacy } from "@/hooks/use-balance-privacy";
 import { PORTFOLIO_ACCOUNT_ID } from "@/lib/constants";
 import { QueryKeys } from "@/lib/query-keys";
 import { useSettingsContext } from "@/lib/settings-provider";
 import type { Account } from "@/lib/types";
 import { useQuery } from "@tanstack/react-query";
 import {
+    AmountDisplay,
     Card,
     CardContent,
     CardHeader,
@@ -15,31 +15,25 @@ import {
     DonutChart,
     EmptyPlaceholder,
     Skeleton,
+    formatPercent,
 } from "@wealthfolio/ui";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 interface DrillableAccountChartProps {
   isLoading?: boolean;
   accountId?: string;
   group?: string;
-  onAccountClick?: (accountId: string, accountName: string) => void;
 }
 
-/**
- * A semi-donut chart for account allocation with drill-down.
- * Root level shows account groups (or ungrouped accounts).
- * Drilled level shows individual accounts within the selected group.
- */
 export function DrillableAccountChart({
   isLoading: isLoadingProp,
   accountId,
   group,
-  onAccountClick,
 }: DrillableAccountChartProps) {
   const { settings } = useSettingsContext();
   const baseCurrency = settings?.baseCurrency ?? "USD";
+  const { isBalanceHidden } = useBalancePrivacy();
   const [activeIndex, setActiveIndex] = useState(0);
-  const { path, drillDown, navigateTo, reset, isAtRoot } = useDrillDownState();
 
   const { data: accounts = [], isLoading: isLoadingAccounts } = useQuery<Account[], Error>({
     queryKey: [QueryKeys.ACCOUNTS],
@@ -67,13 +61,7 @@ export function DrillableAccountChart({
     });
   }, [accounts, accountId, group]);
 
-  useEffect(() => {
-    reset();
-    setActiveIndex(0);
-  }, [accountId, group, reset]);
-
-  // Build account data with group info
-  const accountsWithValues = useMemo(() => {
+  const accountData = useMemo(() => {
     if (!filteredAccounts.length || !performanceData) return [];
 
     return filteredAccounts
@@ -86,97 +74,56 @@ export function DrillableAccountChart({
 
         const fxRate = Number(perf.fxRateToBase) || 1;
         const valueBase = valueAcct * fxRate;
-        const currency = perf.baseCurrency || account.currency || baseCurrency;
 
         return {
           id: account.id,
           name: account.name,
-          group: account.group || account.name, // Use name as group if no group
           value: valueBase,
-          currency,
+          currency: perf.baseCurrency || baseCurrency,
         };
       })
-      .filter((a): a is NonNullable<typeof a> => a !== null);
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      .sort((a, b) => b.value - a.value);
   }, [filteredAccounts, performanceData, baseCurrency]);
 
-  // Root level: grouped by account group
-  const groupedData = useMemo(() => {
-    const groupMap = new Map<string, { value: number; currency: string; accountIds: string[] }>();
+  const totalValue = useMemo(
+    () => accountData.reduce((sum, account) => sum + account.value, 0),
+    [accountData],
+  );
 
-    accountsWithValues.forEach((acc) => {
-      const existing = groupMap.get(acc.group);
-      if (existing) {
-        existing.value += acc.value;
-        existing.accountIds.push(acc.id);
-      } else {
-        groupMap.set(acc.group, {
-          value: acc.value,
-          currency: acc.currency,
-          accountIds: [acc.id],
-        });
-      }
-    });
-
-    return Array.from(groupMap.entries())
-      .map(([name, data]) => ({
-        id: name,
-        name,
-        value: data.value,
-        currency: data.currency,
-        accountIds: data.accountIds,
-      }))
-      .sort((a, b) => b.value - a.value);
-  }, [accountsWithValues]);
-
-  // Drilled level: individual accounts in selected group
-  const drilledData = useMemo(() => {
-    if (path.length === 0) return [];
-
-    const currentGroup = path[path.length - 1].name;
-
-    return accountsWithValues
-      .filter((acc) => acc.group === currentGroup)
-      .map((acc) => ({
-        id: acc.id,
-        name: acc.name,
-        value: acc.value,
-        currency: acc.currency,
-      }))
-      .sort((a, b) => b.value - a.value);
-  }, [path, accountsWithValues]);
-
-  const data = isAtRoot ? groupedData : drilledData;
-
-  const handleSectionClick = (
-    sectionData: { name: string; value: number; currency: string },
-    index: number,
-  ) => {
-    setActiveIndex(index);
-
-    const clickedItem = data.find((d) => d.name === sectionData.name);
-    if (!clickedItem) return;
-
-    if (isAtRoot) {
-      // Check if this group has multiple accounts
-      const group = groupedData.find((g) => g.name === clickedItem.name);
-      if (group && group.accountIds.length > 1) {
-        // Drill down to show individual accounts
-        drillDown(clickedItem.id, clickedItem.name);
-        setActiveIndex(0);
-      } else if (group?.accountIds.length === 1) {
-        // Single account in group, trigger click handler directly
-        onAccountClick?.(group.accountIds[0], clickedItem.name);
-      }
-    } else {
-      // At account level, trigger parent handler
-      onAccountClick?.(clickedItem.id, clickedItem.name);
+  const listRows = useMemo(() => {
+    if (!accountData.length || totalValue <= 0) {
+      return [] as Array<{ key: string; name: string; value: number; percent: number }>;
     }
-  };
 
-  const handleBreadcrumbNavigate = (index: number) => {
-    navigateTo(index);
-    setActiveIndex(0);
-  };
+    if (accountData.length <= 4) {
+      return accountData.map((account) => ({
+        key: account.id,
+        name: account.name,
+        value: account.value,
+        percent: account.value / totalValue,
+      }));
+    }
+
+    const topThree = accountData.slice(0, 3).map((account) => ({
+      key: account.id,
+      name: account.name,
+      value: account.value,
+      percent: account.value / totalValue,
+    }));
+
+    const othersValue = accountData.slice(3).reduce((sum, account) => sum + account.value, 0);
+
+    return [
+      ...topThree,
+      {
+        key: "__others__",
+        name: "Others",
+        value: othersValue,
+        percent: othersValue / totalValue,
+      },
+    ];
+  }, [accountData, totalValue]);
 
   if (isLoading) {
     return (
@@ -184,9 +131,15 @@ export function DrillableAccountChart({
         <CardHeader>
           <Skeleton className="h-5 w-[140px]" />
         </CardHeader>
-        <CardContent className="p-6">
+        <CardContent className="space-y-4 p-6 pt-0">
           <div className="flex h-[160px] items-center justify-center">
             <Skeleton className="h-[120px] w-[120px] rounded-full" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
           </div>
         </CardContent>
       </Card>
@@ -196,27 +149,41 @@ export function DrillableAccountChart({
   return (
     <Card className="overflow-hidden backdrop-blur-sm">
       <CardHeader>
-        {isAtRoot ? (
-          <CardTitle className="text-muted-foreground text-sm font-medium uppercase tracking-wider">
-            Accounts
-          </CardTitle>
-        ) : (
-          <AllocationBreadcrumb
-            path={path}
-            rootLabel="Accounts"
-            onNavigate={handleBreadcrumbNavigate}
-          />
-        )}
+        <CardTitle className="text-muted-foreground text-sm font-medium uppercase tracking-wider">
+          Accounts
+        </CardTitle>
       </CardHeader>
-      <CardContent className="pt-0">
-        {data.length > 0 ? (
+      <CardContent className="space-y-4 pt-0">
+        {accountData.length > 0 ? (
+          <>
           <DonutChart
-            data={data}
+            data={accountData}
             activeIndex={activeIndex}
-            onSectionClick={handleSectionClick}
+            onSectionClick={(_, index) => setActiveIndex(index)}
             startAngle={180}
             endAngle={0}
           />
+            <div className="space-y-1">
+              {listRows.map((row) => (
+                <div
+                  key={row.key}
+                  className="flex w-full items-center justify-between rounded-md px-1 py-1 text-left"
+                >
+                  <span className="text-sm font-medium">{row.name}</span>
+                  <div className="flex items-center gap-2 text-sm">
+                    <AmountDisplay
+                      value={row.value}
+                      currency={baseCurrency}
+                      isHidden={isBalanceHidden}
+                      displayCurrency={false}
+                    />
+                    <span className="text-muted-foreground text-xs">|</span>
+                    <span className="text-muted-foreground">{formatPercent(row.percent)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <EmptyPlaceholder description="No account data available." />
         )}
