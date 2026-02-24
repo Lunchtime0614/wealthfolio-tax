@@ -28,6 +28,7 @@ pub trait PerformanceServiceTrait: Send + Sync {
         start_date: Option<NaiveDate>,
         end_date: Option<NaiveDate>,
         tracking_mode: Option<TrackingMode>,
+        group: Option<String>,
     ) -> Result<PerformanceMetrics>;
 
     async fn calculate_performance_summary(
@@ -37,6 +38,7 @@ pub trait PerformanceServiceTrait: Send + Sync {
         start_date: Option<NaiveDate>,
         end_date: Option<NaiveDate>,
         tracking_mode: Option<TrackingMode>,
+        group: Option<String>,
     ) -> Result<PerformanceMetrics>;
 
     /// Calculates simple performance metrics (daily returns, cumulative returns, portfolio weights) for multiple accounts.
@@ -73,6 +75,7 @@ impl PerformanceService {
         account_id: &str,
         start_date_opt: Option<NaiveDate>,
         end_date_opt: Option<NaiveDate>,
+        group: Option<String>,
     ) -> Result<(
         DailyAccountValuation,
         DailyAccountValuation,
@@ -84,6 +87,7 @@ impl PerformanceService {
             account_id,
             start_date_opt,
             end_date_opt,
+            group,
         )?;
 
         if full_history.len() < 2 {
@@ -125,6 +129,7 @@ impl PerformanceService {
         start_date_opt: Option<NaiveDate>,
         end_date_opt: Option<NaiveDate>,
         tracking_mode: Option<TrackingMode>,
+        group: Option<String>,
     ) -> Result<PerformanceMetrics> {
         if let (Some(start), Some(end)) = (start_date_opt, end_date_opt) {
             if start > end {
@@ -138,6 +143,7 @@ impl PerformanceService {
             account_id,
             start_date_opt,
             end_date_opt,
+            group,
         )?;
 
         if full_history.len() < 2 {
@@ -360,6 +366,7 @@ impl PerformanceService {
         start_date_opt: Option<NaiveDate>,
         end_date_opt: Option<NaiveDate>,
         tracking_mode: Option<TrackingMode>,
+        group: Option<String>,
     ) -> Result<PerformanceMetrics> {
         let (start_point, end_point, actual_start_date, actual_end_date, currency): (
             DailyAccountValuation,
@@ -367,7 +374,7 @@ impl PerformanceService {
             NaiveDate,
             NaiveDate,
             String,
-        ) = self.get_account_boundary_data(account_id, start_date_opt, end_date_opt)?;
+        ) = self.get_account_boundary_data(account_id, start_date_opt, end_date_opt, group)?;
 
         let is_holdings_mode = matches!(tracking_mode, Some(TrackingMode::Holdings));
 
@@ -797,11 +804,18 @@ impl PerformanceServiceTrait for PerformanceService {
         start_date: Option<NaiveDate>,
         end_date: Option<NaiveDate>,
         tracking_mode: Option<TrackingMode>,
+        group: Option<String>,
     ) -> Result<PerformanceMetrics> {
         match item_type {
             "account" => {
-                self.calculate_account_performance(item_id, start_date, end_date, tracking_mode)
-                    .await
+                self.calculate_account_performance(
+                    item_id,
+                    start_date,
+                    end_date,
+                    tracking_mode,
+                    group,
+                )
+                .await
             }
             "symbol" => {
                 self.calculate_symbol_performance(item_id, start_date, end_date)
@@ -822,6 +836,7 @@ impl PerformanceServiceTrait for PerformanceService {
         start_date: Option<NaiveDate>,
         end_date: Option<NaiveDate>,
         tracking_mode: Option<TrackingMode>,
+        group: Option<String>,
     ) -> Result<PerformanceMetrics> {
         match item_type {
             "account" => {
@@ -830,6 +845,7 @@ impl PerformanceServiceTrait for PerformanceService {
                     start_date,
                     end_date,
                     tracking_mode,
+                    group,
                 )
                 .await
             }

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct HoldingsQuery {
     #[serde(rename = "accountId")]
     pub account_id: String,
+    pub group: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -30,6 +31,7 @@ pub struct HistoryQuery {
     pub start_date: Option<String>,
     #[serde(rename = "endDate")]
     pub end_date: Option<String>,
+    pub group: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -40,6 +42,7 @@ pub struct AllocationHoldingsQuery {
     pub taxonomy_id: String,
     #[serde(rename = "categoryId")]
     pub category_id: String,
+    pub group: Option<String>,
 }
 
 #[derive(Deserialize)]

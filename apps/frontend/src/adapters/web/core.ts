@@ -35,6 +35,7 @@ export const COMMANDS: CommandMap = {
   get_historical_valuations: { method: "GET", path: "/valuations/history" },
   get_latest_valuations: { method: "GET", path: "/valuations/latest" },
   get_portfolio_allocations: { method: "GET", path: "/allocations" },
+  get_holdings_by_allocation: { method: "GET", path: "/allocations/holdings" },
   // Snapshot management
   get_snapshots: { method: "GET", path: "/snapshots" },
   get_snapshot_by_date: { method: "GET", path: "/snapshots/holdings" },
@@ -327,8 +328,11 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       break;
     }
     case "get_holdings": {
-      const p = payload as { accountId: string };
-      url += `?accountId=${encodeURIComponent(p.accountId)}`;
+      const p = payload as { accountId: string; group?: string };
+      const params = new URLSearchParams();
+      params.set("accountId", p.accountId);
+      if (p.group) params.set("group", p.group);
+      url += `?${params.toString()}`;
       break;
     }
     case "get_holding": {
@@ -345,11 +349,17 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       break;
     }
     case "get_historical_valuations": {
-      const p = payload as { accountId?: string; startDate?: string; endDate?: string };
+      const p = payload as {
+        accountId?: string;
+        startDate?: string;
+        endDate?: string;
+        group?: string;
+      };
       const params = new URLSearchParams();
       if (p?.accountId) params.set("accountId", p.accountId);
       if (p?.startDate) params.set("startDate", p.startDate);
       if (p?.endDate) params.set("endDate", p.endDate);
+      if (p?.group) params.set("group", p.group);
       const qs = params.toString();
       if (qs) url += `?${qs}`;
       break;
@@ -365,9 +375,25 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       break;
     }
     case "get_portfolio_allocations": {
-      const { accountId } = payload as { accountId: string };
+      const { accountId, group } = payload as { accountId: string; group?: string };
       const params = new URLSearchParams();
       params.set("accountId", accountId);
+      if (group) params.set("group", group);
+      url += `?${params.toString()}`;
+      break;
+    }
+    case "get_holdings_by_allocation": {
+      const { accountId, taxonomyId, categoryId, group } = payload as {
+        accountId: string;
+        taxonomyId: string;
+        categoryId: string;
+        group?: string;
+      };
+      const params = new URLSearchParams();
+      params.set("accountId", accountId);
+      params.set("taxonomyId", taxonomyId);
+      params.set("categoryId", categoryId);
+      if (group) params.set("group", group);
       url += `?${params.toString()}`;
       break;
     }
@@ -435,23 +461,27 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       break;
     }
     case "calculate_performance_history": {
-      const { itemType, itemId, startDate, endDate } = payload as {
+      const { itemType, itemId, startDate, endDate, trackingMode, group } = payload as {
         itemType: string;
         itemId: string;
         startDate?: string;
         endDate?: string;
+        trackingMode?: string;
+        group?: string;
       };
-      body = JSON.stringify({ itemType, itemId, startDate, endDate });
+      body = JSON.stringify({ itemType, itemId, startDate, endDate, trackingMode, group });
       break;
     }
     case "calculate_performance_summary": {
-      const { itemType, itemId, startDate, endDate } = payload as {
+      const { itemType, itemId, startDate, endDate, trackingMode, group } = payload as {
         itemType: string;
         itemId: string;
         startDate?: string;
         endDate?: string;
+        trackingMode?: string;
+        group?: string;
       };
-      body = JSON.stringify({ itemType, itemId, startDate, endDate });
+      body = JSON.stringify({ itemType, itemId, startDate, endDate, trackingMode, group });
       break;
     }
     case "check_update": {

@@ -207,6 +207,7 @@ pub async fn initialize_context(
     ));
 
     let allocation_service = Arc::new(AllocationService::new(
+        account_service.clone(),
         holdings_service.clone(),
         taxonomy_service.clone(),
     ));

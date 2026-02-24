@@ -1,22 +1,22 @@
-import { Button } from "@wealthfolio/ui/components/ui/button";
-import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@wealthfolio/ui/components/ui/sheet";
-import { AmountDisplay, Skeleton } from "@wealthfolio/ui";
-import { Icons } from "@wealthfolio/ui/components/ui/icons";
-import { useState, useCallback, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { AmountDisplay, Skeleton } from "@wealthfolio/ui";
+import { Button } from "@wealthfolio/ui/components/ui/button";
+import { Icons } from "@wealthfolio/ui/components/ui/icons";
+import {
+    Sheet,
+    SheetClose,
+    SheetContent,
+    SheetFooter,
+    SheetHeader,
+    SheetTitle,
+} from "@wealthfolio/ui/components/ui/sheet";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { getHoldingsByAllocation } from "@/adapters";
 import { TickerAvatar } from "@/components/ticker-avatar";
-import type { TaxonomyAllocation, CategoryAllocation, HoldingSummary } from "@/lib/types";
 import { QueryKeys } from "@/lib/query-keys";
+import type { CategoryAllocation, HoldingSummary, TaxonomyAllocation } from "@/lib/types";
 import { CompactAllocationStrip } from "./compact-allocation-strip";
 
 interface AllocationDetailSheetProps {
@@ -24,6 +24,7 @@ interface AllocationDetailSheetProps {
   onOpenChange: (open: boolean) => void;
   allocation?: TaxonomyAllocation;
   accountId: string;
+  group?: string;
   baseCurrency: string;
   initialCategoryId?: string | null;
 }
@@ -33,6 +34,7 @@ export function AllocationDetailSheet({
   onOpenChange,
   allocation,
   accountId,
+  group,
   baseCurrency,
   initialCategoryId,
 }: AllocationDetailSheetProps) {
@@ -86,11 +88,17 @@ export function AllocationDetailSheet({
     queryKey: [
       QueryKeys.HOLDINGS_BY_ALLOCATION,
       accountId,
+      group ?? "__all__",
       allocation?.taxonomyId,
       selectedCategoryId,
     ],
     queryFn: () =>
-      getHoldingsByAllocation(accountId, allocation?.taxonomyId ?? "", selectedCategoryId ?? ""),
+      getHoldingsByAllocation(
+        accountId,
+        allocation?.taxonomyId ?? "",
+        selectedCategoryId ?? "",
+        group,
+      ),
     enabled: !!selectedCategoryId && !!allocation?.taxonomyId,
     staleTime: 30000,
   });

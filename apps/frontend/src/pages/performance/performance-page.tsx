@@ -1,16 +1,15 @@
 import { BenchmarkSymbolSelector } from "@/components/benchmark-symbol-selector";
 import {
-  ANNUALIZED_RETURN_INFO as annualizedReturnInfo,
-  MAX_DRAWDOWN_INFO as maxDrawdownInfo,
-  MetricLabelWithInfo,
-  TIME_WEIGHTED_RETURN_INFO as totalReturnInfo,
-  VOLATILITY_INFO as volatilityInfo,
+    ANNUALIZED_RETURN_INFO as annualizedReturnInfo,
+    MAX_DRAWDOWN_INFO as maxDrawdownInfo,
+    MetricLabelWithInfo,
+    TIME_WEIGHTED_RETURN_INFO as totalReturnInfo,
+    VOLATILITY_INFO as volatilityInfo,
 } from "@/components/metric-display";
 import { PerformanceChart } from "@/components/performance-chart";
 import { PerformanceChartMobile } from "@/components/performance-chart-mobile";
 
 import { PERFORMANCE_CHART_COLORS } from "@/components/performance-chart-colors";
-import { EmptyPlaceholder } from "@wealthfolio/ui/components/ui/empty-placeholder";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useIsMobileViewport } from "@/hooks/use-platform";
 import { PORTFOLIO_ACCOUNT_ID } from "@/lib/constants";
@@ -18,26 +17,27 @@ import { DateRange, PerformanceMetrics, ReturnData, TrackedItem } from "@/lib/ty
 import { cn } from "@/lib/utils";
 import NumberFlow from "@number-flow/react";
 import {
-  AlertFeedback,
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  DateRangeSelector,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  GainPercent,
-  Icons,
-  Separator,
+    AlertFeedback,
+    Badge,
+    Button,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+    Carousel,
+    CarouselContent,
+    CarouselItem,
+    DateRangeSelector,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    GainPercent,
+    Icons,
+    Separator,
 } from "@wealthfolio/ui";
+import { EmptyPlaceholder } from "@wealthfolio/ui/components/ui/empty-placeholder";
 import { subMonths } from "date-fns";
 import { useMemo, useState } from "react";
 import { AccountSelector } from "../../components/account-selector";
@@ -204,7 +204,7 @@ const SelectedItemBadge = ({
   );
 };
 
-export default function PerformancePage() {
+export default function PerformancePage({ group }: { group?: string }) {
   const isMobile = useIsMobileViewport();
   const [selectedItems, setSelectedItems] = usePersistentState<TrackedItem[]>(
     "performance:selectedItems",
@@ -248,6 +248,7 @@ export default function PerformancePage() {
   } = useCalculatePerformanceHistory({
     selectedItems,
     dateRange,
+    group,
   });
 
   // Calculate derived chart data

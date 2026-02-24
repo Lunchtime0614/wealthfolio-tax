@@ -730,6 +730,7 @@ impl ValuationRepositoryTrait for MockValuationRepository {
         account_id: &str,
         start_date: Option<NaiveDate>,
         end_date: Option<NaiveDate>,
+        _group: Option<String>,
     ) -> Result<Vec<DailyAccountValuation>> {
         let filtered: Vec<_> = self
             .valuations

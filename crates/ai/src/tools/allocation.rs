@@ -172,6 +172,7 @@ impl<E: AiEnvironment + 'static> Tool for GetAssetAllocationTool<E> {
                     &self.base_currency,
                     taxonomy_id,
                     category_id,
+                    None,
                 )
                 .await
                 .map_err(|e| AiError::ToolExecutionFailed(e.to_string()))?;
@@ -203,7 +204,7 @@ impl<E: AiEnvironment + 'static> Tool for GetAssetAllocationTool<E> {
         let allocations = self
             .env
             .allocation_service()
-            .get_portfolio_allocations(account_id, &self.base_currency)
+            .get_portfolio_allocations(account_id, &self.base_currency, None)
             .await
             .map_err(|e| AiError::ToolExecutionFailed(e.to_string()))?;
 

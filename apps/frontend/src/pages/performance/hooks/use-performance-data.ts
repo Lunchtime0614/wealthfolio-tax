@@ -1,10 +1,10 @@
-import { keepPreviousData, useQueries } from "@tanstack/react-query";
 import { calculatePerformanceHistory } from "@/adapters";
-import { useRef } from "react";
-import { format } from "date-fns";
-import { DateRange } from "react-day-picker";
 import { QueryKeys } from "@/lib/query-keys";
 import { TrackedItem } from "@/lib/types";
+import { keepPreviousData, useQueries } from "@tanstack/react-query";
+import { format } from "date-fns";
+import { useRef } from "react";
+import { DateRange } from "react-day-picker";
 
 /**
  * Hook to calculate cumulative returns for a list of comparison items.
@@ -27,10 +27,12 @@ export function useCalculatePerformanceHistory({
   selectedItems,
   dateRange,
   trackingMode,
+  group,
 }: {
   selectedItems: TrackedItem[];
   dateRange: DateRange | undefined;
   trackingMode?: "HOLDINGS" | "TRANSACTIONS";
+  group?: string;
 }) {
   // Filter out invalid items (defensive: handles stale localStorage data)
   const validItems = selectedItems.filter(
@@ -84,6 +86,7 @@ export function useCalculatePerformanceHistory({
         startDateToUse,
         endDate,
         trackingMode,
+        group ?? "__all__",
       ],
       queryFn: () =>
         calculatePerformanceHistory(
@@ -93,6 +96,7 @@ export function useCalculatePerformanceHistory({
           endDate!,
           // Only pass trackingMode for accounts, not for symbols
           item.type === "account" ? trackingMode : undefined,
+          item.type === "account" ? group : undefined,
         ),
       // Enable query only if dates are present (item validation done above).
       enabled: !!startDateToUse && !!endDate,

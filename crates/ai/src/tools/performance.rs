@@ -154,7 +154,14 @@ impl<E: AiEnvironment + 'static> Tool for GetPerformanceTool<E> {
         let metrics = self
             .env
             .performance_service()
-            .calculate_performance_history("account", account_id, start_date, Some(end_date), None)
+            .calculate_performance_history(
+                "account",
+                account_id,
+                start_date,
+                Some(end_date),
+                None,
+                None,
+            )
             .await
             .map_err(|e| AiError::ToolExecutionFailed(e.to_string()))?;
 

@@ -16,6 +16,7 @@ use tauri::{AppHandle, State};
 use wealthfolio_core::{
     accounts::TrackingMode,
     allocation::{AllocationHoldings, PortfolioAllocations},
+    constants::PORTFOLIO_TOTAL_ACCOUNT_ID,
     holdings::Holding,
     income::IncomeSummary,
     performance::{PerformanceMetrics, SimplePerformanceMetrics},
@@ -76,9 +77,49 @@ pub async fn update_portfolio(handle: AppHandle) -> Result<(), String> {
 pub async fn get_holdings(
     state: State<'_, Arc<ServiceContext>>,
     account_id: String,
+    group: Option<String>,
 ) -> Result<Vec<Holding>, String> {
     debug!("Get holdings...");
     let base_currency = state.get_base_currency();
+
+    let normalized_group = group
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    if let Some(group_name) = normalized_group {
+        if account_id == PORTFOLIO_TOTAL_ACCOUNT_ID {
+            let accounts = state
+                .account_service()
+                .get_active_accounts()
+                .map_err(|e| e.to_string())?;
+
+            let mut merged_holdings = Vec::new();
+            for account in accounts {
+                if account.group.as_deref() != Some(group_name) {
+                    continue;
+                }
+
+                let mut account_holdings = state
+                    .holdings_service()
+                    .get_holdings(&account.id, &base_currency)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                merged_holdings.append(&mut account_holdings);
+            }
+
+            return Ok(merged_holdings);
+        }
+
+        let account = state
+            .account_service()
+            .get_account(&account_id)
+            .map_err(|e| e.to_string())?;
+        if account.group.as_deref() != Some(group_name) {
+            return Ok(Vec::new());
+        }
+    }
+
     state
         .holdings_service()
         .get_holdings(&account_id, &base_currency)
@@ -133,12 +174,13 @@ pub async fn get_asset_holdings(
 pub async fn get_portfolio_allocations(
     state: State<'_, Arc<ServiceContext>>,
     account_id: String,
+    group: Option<String>,
 ) -> Result<PortfolioAllocations, String> {
     debug!("Get portfolio allocations for account: {}", account_id);
     let base_currency = state.get_base_currency();
     state
         .allocation_service()
-        .get_portfolio_allocations(&account_id, &base_currency)
+        .get_portfolio_allocations(&account_id, &base_currency, group)
         .await
         .map_err(|e| e.to_string())
 }
@@ -149,6 +191,7 @@ pub async fn get_holdings_by_allocation(
     account_id: String,
     taxonomy_id: String,
     category_id: String,
+    group: Option<String>,
 ) -> Result<AllocationHoldings, String> {
     debug!(
         "Get holdings for category {} in taxonomy {} for account {}",
@@ -157,7 +200,7 @@ pub async fn get_holdings_by_allocation(
     let base_currency = state.get_base_currency();
     state
         .allocation_service()
-        .get_holdings_by_allocation(&account_id, &base_currency, &taxonomy_id, &category_id)
+        .get_holdings_by_allocation(&account_id, &base_currency, &taxonomy_id, &category_id, group)
         .await
         .map_err(|e| e.to_string())
 }
@@ -168,6 +211,7 @@ pub async fn get_historical_valuations(
     account_id: String,
     start_date: Option<String>,
     end_date: Option<String>,
+    group: Option<String>,
 ) -> Result<Vec<DailyAccountValuation>, String> {
     debug!("Get historical valuations for account: {}", account_id);
     //     // Parse optional dates into Option<NaiveDate>
@@ -187,7 +231,7 @@ pub async fn get_historical_valuations(
 
     state
         .valuation_service()
-        .get_historical_valuations(&account_id, from_date_opt, to_date_opt)
+        .get_historical_valuations(&account_id, from_date_opt, to_date_opt, group)
         .map_err(|e| e.to_string())
 }
 
@@ -276,6 +320,7 @@ pub async fn calculate_performance_history(
     start_date: Option<String>,
     end_date: Option<String>,
     tracking_mode: Option<String>,
+    group: Option<String>,
 ) -> Result<PerformanceMetrics, String> {
     debug!(
         "Calculating performance for type: {}, id: {}, start: {:?}, end: {:?}, tracking_mode: {:?}",
@@ -312,6 +357,7 @@ pub async fn calculate_performance_history(
             start_date_opt,
             end_date_opt,
             tracking_mode_opt,
+            group,
         )
         .await
         .map_err(|e| format!("Failed to calculate performance: {}", e))
@@ -328,6 +374,7 @@ pub async fn calculate_performance_summary(
     start_date: Option<String>,
     end_date: Option<String>,
     tracking_mode: Option<String>,
+    group: Option<String>,
 ) -> Result<PerformanceMetrics, String> {
     debug!(
         "Calculating performance summary for type: {}, id: {}, start: {:?}, end: {:?}, tracking_mode: {:?}",
@@ -364,6 +411,7 @@ pub async fn calculate_performance_summary(
             start_date_opt,
             end_date_opt,
             tracking_mode_opt,
+            group,
         )
         .await
         .map_err(|e| format!("Failed to calculate performance: {}", e))

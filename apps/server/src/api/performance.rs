@@ -53,6 +53,7 @@ struct PerfBody {
     end_date: Option<String>,
     #[serde(rename = "trackingMode")]
     tracking_mode: Option<String>,
+    group: Option<String>,
 }
 
 fn parse_tracking_mode(mode: Option<String>) -> Option<TrackingMode> {
@@ -72,7 +73,14 @@ async fn calculate_performance_history(
     let tracking_mode = parse_tracking_mode(body.tracking_mode);
     let metrics = state
         .performance_service
-        .calculate_performance_history(&body.item_type, &body.item_id, start, end, tracking_mode)
+        .calculate_performance_history(
+            &body.item_type,
+            &body.item_id,
+            start,
+            end,
+            tracking_mode,
+            body.group,
+        )
         .await?;
     Ok(Json(metrics))
 }
@@ -86,7 +94,14 @@ async fn calculate_performance_summary(
     let tracking_mode = parse_tracking_mode(body.tracking_mode);
     let metrics = state
         .performance_service
-        .calculate_performance_summary(&body.item_type, &body.item_id, start, end, tracking_mode)
+        .calculate_performance_summary(
+            &body.item_type,
+            &body.item_id,
+            start,
+            end,
+            tracking_mode,
+            body.group,
+        )
         .await?;
     Ok(Json(metrics))
 }

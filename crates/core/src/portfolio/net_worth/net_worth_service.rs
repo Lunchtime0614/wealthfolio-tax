@@ -508,6 +508,7 @@ impl NetWorthServiceTrait for NetWorthService {
             "TOTAL",
             Some(start_date),
             Some(end_date),
+            None,
         )?;
 
         // Build portfolio lookup by date

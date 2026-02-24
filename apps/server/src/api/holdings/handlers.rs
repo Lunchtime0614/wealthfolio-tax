@@ -35,10 +35,49 @@ pub async fn get_holdings(
     Query(q): Query<HoldingsQuery>,
 ) -> ApiResult<Json<Vec<Holding>>> {
     let base = state.base_currency.read().unwrap().clone();
-    let holdings = state
-        .holdings_service
-        .get_holdings(&q.account_id, &base)
-        .await?;
+
+    let group_filter = q
+        .group
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let holdings = if let Some(group_name) = group_filter {
+        if q.account_id == PORTFOLIO_TOTAL_ACCOUNT_ID {
+            let accounts = state.account_service.get_active_accounts()?;
+            let mut merged_holdings = Vec::new();
+
+            for account in accounts {
+                if account.group.as_deref() != Some(group_name) {
+                    continue;
+                }
+
+                let mut account_holdings = state
+                    .holdings_service
+                    .get_holdings(&account.id, &base)
+                    .await?;
+                merged_holdings.append(&mut account_holdings);
+            }
+
+            merged_holdings
+        } else {
+            let account = state.account_service.get_account(&q.account_id)?;
+            if account.group.as_deref() == Some(group_name) {
+                state
+                    .holdings_service
+                    .get_holdings(&q.account_id, &base)
+                    .await?
+            } else {
+                Vec::new()
+            }
+        }
+    } else {
+        state
+            .holdings_service
+            .get_holdings(&q.account_id, &base)
+            .await?
+    };
+
     Ok(Json(holdings))
 }
 
@@ -94,7 +133,7 @@ pub async fn get_historical_valuations(
         .transpose()?;
     let vals = state
         .valuation_service
-        .get_historical_valuations(&q.account_id, start, end)?;
+        .get_historical_valuations(&q.account_id, start, end, q.group.clone())?;
     Ok(Json(vals))
 }
 
@@ -138,7 +177,7 @@ pub async fn get_portfolio_allocations(
     let base = state.base_currency.read().unwrap().clone();
     let allocations = state
         .allocation_service
-        .get_portfolio_allocations(&q.account_id, &base)
+        .get_portfolio_allocations(&q.account_id, &base, q.group.clone())
         .await?;
     Ok(Json(allocations))
 }
@@ -150,7 +189,13 @@ pub async fn get_holdings_by_allocation(
     let base = state.base_currency.read().unwrap().clone();
     let result = state
         .allocation_service
-        .get_holdings_by_allocation(&q.account_id, &base, &q.taxonomy_id, &q.category_id)
+        .get_holdings_by_allocation(
+            &q.account_id,
+            &base,
+            &q.taxonomy_id,
+            &q.category_id,
+            q.group.clone(),
+        )
         .await?;
     Ok(Json(result))
 }

@@ -421,6 +421,7 @@ pub mod test_env {
             _account_id: &str,
             _start_date: Option<NaiveDate>,
             _end_date: Option<NaiveDate>,
+            _group: Option<String>,
         ) -> CoreResult<Vec<DailyAccountValuation>> {
             Ok(self.valuations.clone())
         }
@@ -926,6 +927,7 @@ pub mod test_env {
             &self,
             _account_id: &str,
             _base_currency: &str,
+            _group: Option<String>,
         ) -> CoreResult<PortfolioAllocations> {
             Ok(PortfolioAllocations::default())
         }
@@ -936,6 +938,7 @@ pub mod test_env {
             base_currency: &str,
             taxonomy_id: &str,
             category_id: &str,
+            _group: Option<String>,
         ) -> CoreResult<AllocationHoldings> {
             Ok(AllocationHoldings {
                 taxonomy_id: taxonomy_id.to_string(),
@@ -977,6 +980,7 @@ pub mod test_env {
             _start_date: Option<NaiveDate>,
             _end_date: Option<NaiveDate>,
             _tracking_mode: Option<TrackingMode>,
+            _group: Option<String>,
         ) -> CoreResult<PerformanceMetrics> {
             Ok(PerformanceMetrics {
                 id: item_id.to_string(),
@@ -1006,6 +1010,7 @@ pub mod test_env {
             _start_date: Option<NaiveDate>,
             _end_date: Option<NaiveDate>,
             _tracking_mode: Option<TrackingMode>,
+            _group: Option<String>,
         ) -> CoreResult<PerformanceMetrics> {
             Ok(PerformanceMetrics {
                 id: item_id.to_string(),

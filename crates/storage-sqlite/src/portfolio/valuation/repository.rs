@@ -14,6 +14,7 @@ use crate::db::{get_connection, WriteHandle};
 use crate::errors::StorageError;
 use crate::schema::daily_account_valuation;
 use crate::schema::daily_account_valuation::dsl::*;
+use wealthfolio_core::constants::PORTFOLIO_TOTAL_ACCOUNT_ID;
 use wealthfolio_core::errors::Result;
 use wealthfolio_core::portfolio::valuation::{DailyAccountValuation, ValuationRepositoryTrait};
 
@@ -60,25 +61,128 @@ impl ValuationRepositoryTrait for ValuationRepository {
         input_account_id: &str,
         start_date_opt: Option<NaiveDate>,
         end_date_opt: Option<NaiveDate>,
+        group: Option<String>,
     ) -> Result<Vec<DailyAccountValuation>> {
         let mut conn = get_connection(&self.pool)?;
 
-        let mut query = daily_account_valuation::table
-            .filter(account_id.eq(input_account_id))
-            .order(valuation_date.asc())
-            .into_boxed();
+        let normalized_group = group
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
 
-        if let Some(start_date_val) = start_date_opt {
-            query = query.filter(valuation_date.ge(start_date_val));
-        }
+        let history_dbs = if let Some(group_name) = normalized_group {
+            if input_account_id == PORTFOLIO_TOTAL_ACCOUNT_ID {
+                let mut sql = String::from(
+                    "SELECT \
+                        MIN(v.id) as id, \
+                        'TOTAL' as account_id, \
+                        v.valuation_date as valuation_date, \
+                        COALESCE(MIN(v.base_currency), 'USD') as account_currency, \
+                        COALESCE(MIN(v.base_currency), 'USD') as base_currency, \
+                        '1' as fx_rate_to_base, \
+                        CAST(SUM(CAST(v.cash_balance AS REAL) * CAST(v.fx_rate_to_base AS REAL)) AS TEXT) as cash_balance, \
+                        CAST(SUM(CAST(v.investment_market_value AS REAL) * CAST(v.fx_rate_to_base AS REAL)) AS TEXT) as investment_market_value, \
+                        CAST(SUM(CAST(v.total_value AS REAL) * CAST(v.fx_rate_to_base AS REAL)) AS TEXT) as total_value, \
+                        CAST(SUM(CAST(v.cost_basis AS REAL) * CAST(v.fx_rate_to_base AS REAL)) AS TEXT) as cost_basis, \
+                        CAST(SUM(CAST(v.net_contribution AS REAL) * CAST(v.fx_rate_to_base AS REAL)) AS TEXT) as net_contribution, \
+                        MAX(v.calculated_at) as calculated_at \
+                     FROM daily_account_valuation v \
+                     INNER JOIN accounts acc ON v.account_id = acc.id \
+                     WHERE acc.is_archived = 0 \
+                     AND acc.\"group\" = ?",
+                );
 
-        if let Some(end_date_val) = end_date_opt {
-            query = query.filter(valuation_date.le(end_date_val));
-        }
+                if start_date_opt.is_some() {
+                    sql.push_str(" AND v.valuation_date >= ?");
+                }
+                if end_date_opt.is_some() {
+                    sql.push_str(" AND v.valuation_date <= ?");
+                }
 
-        let history_dbs = query
-            .load::<DailyAccountValuationDB>(&mut conn)
-            .map_err(StorageError::from)?;
+                sql.push_str(" GROUP BY v.valuation_date ORDER BY v.valuation_date ASC");
+
+                let mut query_builder = sql_query(sql).into_boxed::<Sqlite>();
+                query_builder = query_builder.bind::<Text, _>(group_name.to_string());
+
+                if let Some(start_date_val) = start_date_opt {
+                    query_builder = query_builder
+                        .bind::<Text, _>(start_date_val.format("%Y-%m-%d").to_string());
+                }
+
+                if let Some(end_date_val) = end_date_opt {
+                    query_builder =
+                        query_builder.bind::<Text, _>(end_date_val.format("%Y-%m-%d").to_string());
+                }
+
+                query_builder
+                    .load::<DailyAccountValuationDB>(&mut conn)
+                    .map_err(StorageError::from)?
+            } else {
+                let mut sql = String::from(
+                    "SELECT \
+                        v.id, \
+                        v.account_id, \
+                        v.valuation_date, \
+                        v.account_currency, \
+                        v.base_currency, \
+                        v.fx_rate_to_base, \
+                        v.cash_balance, \
+                        v.investment_market_value, \
+                        v.total_value, \
+                        v.cost_basis, \
+                        v.net_contribution, \
+                        v.calculated_at \
+                     FROM daily_account_valuation v \
+                     INNER JOIN accounts acc ON v.account_id = acc.id \
+                     WHERE v.account_id = ? \
+                     AND acc.\"group\" = ?",
+                );
+
+                if start_date_opt.is_some() {
+                    sql.push_str(" AND v.valuation_date >= ?");
+                }
+                if end_date_opt.is_some() {
+                    sql.push_str(" AND v.valuation_date <= ?");
+                }
+
+                sql.push_str(" ORDER BY v.valuation_date ASC");
+
+                let mut query_builder = sql_query(sql).into_boxed::<Sqlite>();
+                query_builder = query_builder.bind::<Text, _>(input_account_id.to_string());
+                query_builder = query_builder.bind::<Text, _>(group_name.to_string());
+
+                if let Some(start_date_val) = start_date_opt {
+                    query_builder = query_builder
+                        .bind::<Text, _>(start_date_val.format("%Y-%m-%d").to_string());
+                }
+
+                if let Some(end_date_val) = end_date_opt {
+                    query_builder =
+                        query_builder.bind::<Text, _>(end_date_val.format("%Y-%m-%d").to_string());
+                }
+
+                query_builder
+                    .load::<DailyAccountValuationDB>(&mut conn)
+                    .map_err(StorageError::from)?
+            }
+        } else {
+            let mut query = daily_account_valuation::table
+                .filter(account_id.eq(input_account_id))
+                .order(valuation_date.asc())
+                .into_boxed();
+
+            if let Some(start_date_val) = start_date_opt {
+                query = query.filter(valuation_date.ge(start_date_val));
+            }
+
+            if let Some(end_date_val) = end_date_opt {
+                query = query.filter(valuation_date.le(end_date_val));
+            }
+
+            query
+                .load::<DailyAccountValuationDB>(&mut conn)
+                .map_err(StorageError::from)?
+        };
 
         // Convert Vec<DailyAccountValuationDB> to Vec<DailyAccountValuation>
         // Handle potential conversion errors if necessary (using From implicitly handles unwrap_or_default)

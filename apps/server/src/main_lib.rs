@@ -256,7 +256,11 @@ pub async fn build_state(config: &Config) -> anyhow::Result<Arc<AppState>> {
     ));
 
     let allocation_service: Arc<dyn AllocationServiceTrait + Send + Sync> = Arc::new(
-        AllocationService::new(holdings_service.clone(), taxonomy_service.clone()),
+        AllocationService::new(
+            account_service.clone(),
+            holdings_service.clone(),
+            taxonomy_service.clone(),
+        ),
     );
 
     let performance_service = Arc::new(

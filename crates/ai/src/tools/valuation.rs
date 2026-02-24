@@ -148,7 +148,12 @@ impl<E: AiEnvironment + 'static> Tool for GetValuationHistoryTool<E> {
                 let account_valuations = self
                     .env
                     .valuation_service()
-                    .get_historical_valuations(&account.id, Some(start_date), Some(end_date))
+                    .get_historical_valuations(
+                        &account.id,
+                        Some(start_date),
+                        Some(end_date),
+                        None,
+                    )
                     .map_err(|e| AiError::ToolExecutionFailed(e.to_string()))?;
 
                 for v in account_valuations {
@@ -182,7 +187,7 @@ impl<E: AiEnvironment + 'static> Tool for GetValuationHistoryTool<E> {
             let account_valuations = self
                 .env
                 .valuation_service()
-                .get_historical_valuations(account_id, Some(start_date), Some(end_date))
+                .get_historical_valuations(account_id, Some(start_date), Some(end_date), None)
                 .map_err(|e| AiError::ToolExecutionFailed(e.to_string()))?;
 
             account_valuations

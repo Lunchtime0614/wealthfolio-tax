@@ -21,16 +21,20 @@ import { SegmentedAllocationBar } from "./components/segmented-allocation-bar";
 
 interface HoldingsInsightsPageProps {
   accountId?: string;
+  group?: string;
 }
 
-export const HoldingsInsightsPage = ({ accountId: accountIdProp }: HoldingsInsightsPageProps) => {
+export const HoldingsInsightsPage = ({
+  accountId: accountIdProp,
+  group,
+}: HoldingsInsightsPageProps) => {
   const navigate = useNavigate();
   const { settings } = useSettingsContext();
   const baseCurrency = settings?.baseCurrency ?? "USD";
 
   const accountId = accountIdProp ?? PORTFOLIO_ACCOUNT_ID;
-  const { holdings, isLoading: holdingsLoading } = useHoldings(accountId);
-  const { allocations, isLoading: allocationsLoading } = usePortfolioAllocations(accountId);
+  const { holdings, isLoading: holdingsLoading } = useHoldings(accountId, group);
+  const { allocations, isLoading: allocationsLoading } = usePortfolioAllocations(accountId, group);
 
   const isLoading = holdingsLoading || allocationsLoading;
 
@@ -294,6 +298,7 @@ export const HoldingsInsightsPage = ({ accountId: accountIdProp }: HoldingsInsig
         onOpenChange={setIsSheetOpen}
         allocation={selectedAllocation}
         accountId={accountId}
+        group={group}
         baseCurrency={baseCurrency}
         initialCategoryId={initialCategoryId}
       />

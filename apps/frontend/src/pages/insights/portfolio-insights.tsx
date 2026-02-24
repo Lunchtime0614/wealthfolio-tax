@@ -1,14 +1,24 @@
 import { AccountSelector } from "@/components/account-selector";
 import { SwipablePage, SwipablePageView } from "@/components/page";
+import { useAccounts } from "@/hooks/use-accounts";
 import { PORTFOLIO_ACCOUNT_ID } from "@/lib/constants";
 import type { Account } from "@/lib/types";
 import IncomePage from "@/pages/income/income-page";
 import PerformancePage from "@/pages/performance/performance-page";
 import { Icons } from "@wealthfolio/ui";
 import { Card, CardContent, CardHeader } from "@wealthfolio/ui/components/ui/card";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@wealthfolio/ui/components/ui/select";
 import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
 import { Suspense, useMemo, useState } from "react";
 import HoldingsInsightsPage from "../holdings/holdings-insights-page";
+
+const ALL_GROUP_VALUE = "__all__";
 
 // Loading skeleton to show while the dashboard is loading
 const DashboardLoader = () => (
@@ -34,6 +44,7 @@ const DashboardLoader = () => (
 );
 
 export default function PortfolioInsightsPage() {
+  const { accounts } = useAccounts({ filterActive: true });
   const [selectedAccount, setSelectedAccount] = useState<Account | null>({
     id: PORTFOLIO_ACCOUNT_ID,
     name: "All Portfolio",
@@ -47,19 +58,49 @@ export default function PortfolioInsightsPage() {
   } as Account);
 
   const accountId = selectedAccount?.id ?? PORTFOLIO_ACCOUNT_ID;
+  const [selectedGroup, setSelectedGroup] = useState<string>(ALL_GROUP_VALUE);
+
+  const accountGroups = useMemo(() => {
+    const groups = new Set<string>();
+    for (const account of accounts) {
+      const groupName = account.group?.trim();
+      if (groupName) {
+        groups.add(groupName);
+      }
+    }
+    return Array.from(groups).sort((a, b) => a.localeCompare(b));
+  }, [accounts]);
+
+  const groupFilter = selectedGroup === ALL_GROUP_VALUE ? undefined : selectedGroup;
 
   const holdingsActions = useMemo(
     () => (
-      <AccountSelector
-        selectedAccount={selectedAccount}
-        setSelectedAccount={setSelectedAccount}
-        variant="dropdown"
-        includePortfolio={true}
-        iconOnly={true}
-        icon={Icons.ListFilter}
-      />
+      <div className="flex items-center gap-2">
+        <AccountSelector
+          selectedAccount={selectedAccount}
+          setSelectedAccount={setSelectedAccount}
+          variant="dropdown"
+          includePortfolio={true}
+          iconOnly={true}
+          icon={Icons.ListFilter}
+        />
+
+        <Select value={selectedGroup} onValueChange={setSelectedGroup}>
+          <SelectTrigger className="h-8 min-w-[130px]">
+            <SelectValue placeholder="All groups" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_GROUP_VALUE}>All groups</SelectItem>
+            {accountGroups.map((groupName) => (
+              <SelectItem key={groupName} value={groupName}>
+                {groupName}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     ),
-    [selectedAccount],
+    [accountGroups, selectedAccount, selectedGroup],
   );
 
   // Define the views with icons
@@ -71,7 +112,7 @@ export default function PortfolioInsightsPage() {
         icon: Icons.PieChart,
         content: (
           <Suspense fallback={<DashboardLoader />}>
-            <HoldingsInsightsPage accountId={accountId} />
+            <HoldingsInsightsPage accountId={accountId} group={groupFilter} />
           </Suspense>
         ),
         actions: holdingsActions,
@@ -82,7 +123,7 @@ export default function PortfolioInsightsPage() {
         icon: Icons.TrendingUp,
         content: (
           <Suspense fallback={<DashboardLoader />}>
-            <PerformancePage />
+            <PerformancePage group={groupFilter} />
           </Suspense>
         ),
       },
@@ -97,7 +138,7 @@ export default function PortfolioInsightsPage() {
         ),
       },
     ],
-    [accountId, holdingsActions],
+    [accountId, groupFilter, holdingsActions],
   );
 
   return <SwipablePage views={views} defaultView="holdings" withPadding={true} />;

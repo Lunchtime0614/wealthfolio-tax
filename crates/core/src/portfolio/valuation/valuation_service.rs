@@ -49,6 +49,7 @@ pub trait ValuationServiceTrait: Send + Sync {
         account_id: &str,
         start_date_opt: Option<NaiveDate>,
         end_date_opt: Option<NaiveDate>,
+        group: Option<String>,
     ) -> CoreResult<Vec<DailyAccountValuation>>;
 
     /// Loads the latest valuation history record for a list of accounts.
@@ -360,15 +361,17 @@ impl ValuationServiceTrait for ValuationService {
         account_id: &str,
         start_date_opt: Option<NaiveDate>,
         end_date_opt: Option<NaiveDate>,
+        group: Option<String>,
     ) -> CoreResult<Vec<DailyAccountValuation>> {
         debug!(
-            "Loading historical valuations for account '{}' from {:?} to {:?}",
-            account_id, start_date_opt, end_date_opt
+            "Loading historical valuations for account '{}' from {:?} to {:?} with group filter {:?}",
+            account_id, start_date_opt, end_date_opt, group
         );
         self.valuation_repository.get_historical_valuations(
             account_id,
             start_date_opt,
             end_date_opt,
+            group,
         )
     }
 

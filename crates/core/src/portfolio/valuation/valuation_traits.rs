@@ -18,6 +18,7 @@ pub trait ValuationRepositoryTrait: Send + Sync {
         account_id: &str,
         start_date: Option<NaiveDate>,
         end_date: Option<NaiveDate>,
+        group: Option<String>,
     ) -> Result<Vec<DailyAccountValuation>>;
 
     /// Get the latest valuation date for a specific account.

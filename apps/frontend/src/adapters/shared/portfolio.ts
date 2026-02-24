@@ -1,16 +1,16 @@
 // Portfolio Commands
 import type {
-  Holding,
-  AllocationHoldings,
-  IncomeSummary,
-  AccountValuation,
-  PerformanceMetrics,
-  PortfolioAllocations,
-  SimplePerformanceMetrics,
-  HoldingsSnapshotInput,
-  ImportHoldingsCsvResult,
-  CheckHoldingsImportResult,
-  SnapshotInfo,
+    AccountValuation,
+    AllocationHoldings,
+    CheckHoldingsImportResult,
+    Holding,
+    HoldingsSnapshotInput,
+    ImportHoldingsCsvResult,
+    IncomeSummary,
+    PerformanceMetrics,
+    PortfolioAllocations,
+    SimplePerformanceMetrics,
+    SnapshotInfo,
 } from "@/lib/types";
 
 import { invoke, logger } from "./platform";
@@ -23,8 +23,10 @@ export const recalculatePortfolio = async (): Promise<void> => {
   return invoke<void>("recalculate_portfolio");
 };
 
-export const getHoldings = async (accountId: string): Promise<Holding[]> => {
-  return invoke<Holding[]>("get_holdings", { accountId });
+export const getHoldings = async (accountId: string, group?: string): Promise<Holding[]> => {
+  const params: { accountId: string; group?: string } = { accountId };
+  if (group) params.group = group;
+  return invoke<Holding[]>("get_holdings", params);
 };
 
 export const getIncomeSummary = async (): Promise<IncomeSummary[]> => {
@@ -35,11 +37,13 @@ export const getHistoricalValuations = async (
   accountId?: string,
   startDate?: string,
   endDate?: string,
+  group?: string,
 ): Promise<AccountValuation[]> => {
-  const params: { accountId?: string; startDate?: string; endDate?: string } = {};
+  const params: { accountId?: string; startDate?: string; endDate?: string; group?: string } = {};
   if (accountId) params.accountId = accountId;
   if (startDate) params.startDate = startDate;
   if (endDate) params.endDate = endDate;
+  if (group) params.group = group;
 
   return invoke<AccountValuation[]>(
     "get_historical_valuations",
@@ -57,6 +61,7 @@ export const calculatePerformanceHistory = async (
   startDate: string,
   endDate: string,
   trackingMode?: "HOLDINGS" | "TRANSACTIONS",
+  group?: string,
 ): Promise<PerformanceMetrics> => {
   const response = await invoke<PerformanceMetrics>("calculate_performance_history", {
     itemType,
@@ -64,6 +69,7 @@ export const calculatePerformanceHistory = async (
     startDate,
     endDate,
     trackingMode,
+    group,
   });
 
   if (typeof response === "string" || !response || Object.keys(response).length === 0) {
@@ -81,6 +87,7 @@ interface CalculatePerformanceSummaryArgs {
   startDate?: string | null;
   endDate?: string | null;
   trackingMode?: "HOLDINGS" | "TRANSACTIONS";
+  group?: string;
 }
 
 export const calculatePerformanceSummary = async ({
@@ -89,6 +96,7 @@ export const calculatePerformanceSummary = async ({
   startDate,
   endDate,
   trackingMode,
+  group,
 }: CalculatePerformanceSummaryArgs): Promise<PerformanceMetrics> => {
   const args: Record<string, unknown> = {
     itemType,
@@ -102,6 +110,9 @@ export const calculatePerformanceSummary = async ({
   }
   if (trackingMode) {
     args.trackingMode = trackingMode;
+  }
+  if (group) {
+    args.group = group;
   }
 
   const response = await invoke<PerformanceMetrics>("calculate_performance_summary", args);
@@ -132,8 +143,13 @@ export const getAssetHoldings = async (assetId: string): Promise<Holding[]> => {
   return invoke<Holding[]>("get_asset_holdings", { assetId });
 };
 
-export const getPortfolioAllocations = async (accountId: string): Promise<PortfolioAllocations> => {
-  return invoke<PortfolioAllocations>("get_portfolio_allocations", { accountId });
+export const getPortfolioAllocations = async (
+  accountId: string,
+  group?: string,
+): Promise<PortfolioAllocations> => {
+  const params: { accountId: string; group?: string } = { accountId };
+  if (group) params.group = group;
+  return invoke<PortfolioAllocations>("get_portfolio_allocations", params);
 };
 
 /**
@@ -145,12 +161,21 @@ export const getHoldingsByAllocation = async (
   accountId: string,
   taxonomyId: string,
   categoryId: string,
+  group?: string,
 ): Promise<AllocationHoldings> => {
-  return invoke<AllocationHoldings>("get_holdings_by_allocation", {
+  const params: {
+    accountId: string;
+    taxonomyId: string;
+    categoryId: string;
+    group?: string;
+  } = {
     accountId,
     taxonomyId,
     categoryId,
-  });
+  };
+  if (group) params.group = group;
+
+  return invoke<AllocationHoldings>("get_holdings_by_allocation", params);
 };
 
 /**

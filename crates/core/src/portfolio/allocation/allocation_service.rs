@@ -8,6 +8,8 @@ use log::debug;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
+use crate::accounts::AccountServiceTrait;
+use crate::constants::PORTFOLIO_TOTAL_ACCOUNT_ID;
 use crate::errors::Result;
 use crate::portfolio::holdings::{Holding, HoldingSummary, HoldingType, HoldingsServiceTrait};
 use crate::taxonomies::{Category, TaxonomyServiceTrait};
@@ -23,6 +25,7 @@ pub trait AllocationServiceTrait: Send + Sync {
         &self,
         account_id: &str,
         base_currency: &str,
+        group: Option<String>,
     ) -> Result<PortfolioAllocations>;
 
     /// Returns holdings filtered by a taxonomy category with full category metadata.
@@ -33,23 +36,70 @@ pub trait AllocationServiceTrait: Send + Sync {
         base_currency: &str,
         taxonomy_id: &str,
         category_id: &str,
+        group: Option<String>,
     ) -> Result<AllocationHoldings>;
 }
 
 /// Service for computing taxonomy-based portfolio allocations.
 pub struct AllocationService {
+    account_service: Arc<dyn AccountServiceTrait>,
     holdings_service: Arc<dyn HoldingsServiceTrait>,
     taxonomy_service: Arc<dyn TaxonomyServiceTrait>,
 }
 
 impl AllocationService {
     pub fn new(
+        account_service: Arc<dyn AccountServiceTrait>,
         holdings_service: Arc<dyn HoldingsServiceTrait>,
         taxonomy_service: Arc<dyn TaxonomyServiceTrait>,
     ) -> Self {
         Self {
+            account_service,
             holdings_service,
             taxonomy_service,
+        }
+    }
+
+    async fn load_holdings_for_scope(
+        &self,
+        account_id: &str,
+        base_currency: &str,
+        group: Option<&str>,
+    ) -> Result<Vec<Holding>> {
+        match group {
+            Some(group_name) => {
+                if account_id == PORTFOLIO_TOTAL_ACCOUNT_ID {
+                    let mut merged_holdings = Vec::new();
+                    let accounts = self.account_service.get_active_accounts()?;
+
+                    for account in accounts {
+                        if account.group.as_deref() != Some(group_name) {
+                            continue;
+                        }
+
+                        let mut account_holdings = self
+                            .holdings_service
+                            .get_holdings(&account.id, base_currency)
+                            .await?;
+                        merged_holdings.append(&mut account_holdings);
+                    }
+
+                    Ok(merged_holdings)
+                } else {
+                    let account = self.account_service.get_account(account_id)?;
+                    if account.group.as_deref() != Some(group_name) {
+                        return Ok(Vec::new());
+                    }
+                    self.holdings_service
+                        .get_holdings(account_id, base_currency)
+                        .await
+                }
+            }
+            None => {
+                self.holdings_service
+                    .get_holdings(account_id, base_currency)
+                    .await
+            }
         }
     }
 
@@ -293,16 +343,21 @@ impl AllocationServiceTrait for AllocationService {
         &self,
         account_id: &str,
         base_currency: &str,
+        group: Option<String>,
     ) -> Result<PortfolioAllocations> {
         debug!(
-            "Computing portfolio allocations for account {} in {}",
-            account_id, base_currency
+            "Computing portfolio allocations for account {} in {} with group filter {:?}",
+            account_id, base_currency, group
         );
+
+        let normalized_group = group
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
 
         // 1. Get holdings
         let holdings = self
-            .holdings_service
-            .get_holdings(account_id, base_currency)
+            .load_holdings_for_scope(account_id, base_currency, normalized_group)
             .await?;
 
         if holdings.is_empty() {
@@ -456,10 +511,11 @@ impl AllocationServiceTrait for AllocationService {
         base_currency: &str,
         taxonomy_id: &str,
         category_id: &str,
+        group: Option<String>,
     ) -> Result<AllocationHoldings> {
         debug!(
-            "Getting holdings for category {} in taxonomy {} for account {}",
-            category_id, taxonomy_id, account_id
+            "Getting holdings for category {} in taxonomy {} for account {} with group filter {:?}",
+            category_id, taxonomy_id, account_id, group
         );
 
         // Get taxonomy with categories for hierarchy lookup and metadata
@@ -491,10 +547,14 @@ impl AllocationServiceTrait for AllocationService {
                 .unwrap_or_else(|| (category_id.to_string(), taxonomy_color.clone()))
         };
 
+        let normalized_group = group
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
         // Get all holdings for the account
         let holdings = self
-            .holdings_service
-            .get_holdings(account_id, base_currency)
+            .load_holdings_for_scope(account_id, base_currency, normalized_group)
             .await?;
 
         if holdings.is_empty() {
