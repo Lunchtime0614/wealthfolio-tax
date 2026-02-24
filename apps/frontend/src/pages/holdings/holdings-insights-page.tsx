@@ -153,7 +153,11 @@ export const HoldingsInsightsPage = ({
     return (
       <div className="space-y-4">
         {/* Row 1: Cash Balance (full width) */}
-        <CashHoldingsWidget cashHoldings={cashHoldings ?? []} isLoading={isLoading} />
+        <CashHoldingsWidget
+          cashHoldings={cashHoldings ?? []}
+          accounts={accounts}
+          isLoading={isLoading}
+        />
 
         {/* Row 2: 4 semi-donut charts */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -164,7 +168,12 @@ export const HoldingsInsightsPage = ({
             isLoading={isLoading || accountsLoading}
           />
 
-          <DrillableAccountChart isLoading={isLoading} accountId={accountId} group={group} />
+          <DrillableAccountChart
+            key={`${accountId}:${group ?? "__all__"}`}
+            isLoading={isLoading}
+            accountId={accountId}
+            group={group}
+          />
 
           <DrillableDonutChart
             title="Classes"

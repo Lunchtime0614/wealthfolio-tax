@@ -1,20 +1,22 @@
-import { Card } from "@wealthfolio/ui/components/ui/card";
-import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
 import { useBalancePrivacy } from "@/hooks/use-balance-privacy";
 import { useSettingsContext } from "@/lib/settings-provider";
-import { Holding } from "@/lib/types";
+import { Account, Holding } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AmountDisplay } from "@wealthfolio/ui";
+import { Card } from "@wealthfolio/ui/components/ui/card";
+import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
 import { useMemo } from "react";
 
 interface CashHoldingsWidgetProps {
   cashHoldings: Holding[];
+  accounts?: Account[];
   isLoading: boolean;
   className?: string;
 }
 
 export const CashHoldingsWidget = ({
   cashHoldings,
+  accounts,
   isLoading,
   className,
 }: CashHoldingsWidgetProps) => {
@@ -26,6 +28,14 @@ export const CashHoldingsWidget = ({
       return sum + Number(holding.marketValue?.base ?? 0);
     }, 0);
   }, [cashHoldings]);
+
+  const accountNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const account of accounts ?? []) {
+      map.set(account.id, account.name);
+    }
+    return map;
+  }, [accounts]);
 
   if (isLoading) {
     return (
@@ -79,7 +89,7 @@ export const CashHoldingsWidget = ({
               <div key={holding.id} className="flex items-center gap-2.5">
                 <div className="flex items-center gap-1.5">
                   <span className="text-muted-foreground text-[10px] font-medium uppercase tracking-wider sm:text-[10px]">
-                    {holding.localCurrency}
+                    {accountNameById.get(holding.accountId) ?? holding.localCurrency}
                   </span>
                   <span className="text-foreground text-sm sm:text-sm">
                     <AmountDisplay
