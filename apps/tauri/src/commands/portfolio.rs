@@ -87,30 +87,32 @@ pub async fn get_holdings(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    if let Some(group_name) = normalized_group {
-        if account_id == PORTFOLIO_TOTAL_ACCOUNT_ID {
-            let accounts = state
-                .account_service()
-                .get_active_accounts()
-                .map_err(|e| e.to_string())?;
+    if account_id == PORTFOLIO_TOTAL_ACCOUNT_ID {
+        let accounts = state
+            .account_service()
+            .get_active_accounts()
+            .map_err(|e| e.to_string())?;
 
-            let mut merged_holdings = Vec::new();
-            for account in accounts {
+        let mut merged_holdings = Vec::new();
+        for account in accounts {
+            if let Some(group_name) = normalized_group {
                 if account.group.as_deref() != Some(group_name) {
                     continue;
                 }
-
-                let mut account_holdings = state
-                    .holdings_service()
-                    .get_holdings(&account.id, &base_currency)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                merged_holdings.append(&mut account_holdings);
             }
 
-            return Ok(merged_holdings);
+            let mut account_holdings = state
+                .holdings_service()
+                .get_holdings(&account.id, &base_currency)
+                .await
+                .map_err(|e| e.to_string())?;
+            merged_holdings.append(&mut account_holdings);
         }
 
+        return Ok(merged_holdings);
+    }
+
+    if let Some(group_name) = normalized_group {
         let account = state
             .account_service()
             .get_account(&account_id)
@@ -200,7 +202,13 @@ pub async fn get_holdings_by_allocation(
     let base_currency = state.get_base_currency();
     state
         .allocation_service()
-        .get_holdings_by_allocation(&account_id, &base_currency, &taxonomy_id, &category_id, group)
+        .get_holdings_by_allocation(
+            &account_id,
+            &base_currency,
+            &taxonomy_id,
+            &category_id,
+            group,
+        )
         .await
         .map_err(|e| e.to_string())
 }

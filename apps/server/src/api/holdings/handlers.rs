@@ -42,34 +42,36 @@ pub async fn get_holdings(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let holdings = if let Some(group_name) = group_filter {
-        if q.account_id == PORTFOLIO_TOTAL_ACCOUNT_ID {
-            let accounts = state.account_service.get_active_accounts()?;
-            let mut merged_holdings = Vec::new();
+    if q.account_id == PORTFOLIO_TOTAL_ACCOUNT_ID {
+        let accounts = state.account_service.get_active_accounts()?;
+        let mut merged_holdings = Vec::new();
 
-            for account in accounts {
+        for account in accounts {
+            if let Some(group_name) = group_filter {
                 if account.group.as_deref() != Some(group_name) {
                     continue;
                 }
-
-                let mut account_holdings = state
-                    .holdings_service
-                    .get_holdings(&account.id, &base)
-                    .await?;
-                merged_holdings.append(&mut account_holdings);
             }
 
-            merged_holdings
+            let mut account_holdings = state
+                .holdings_service
+                .get_holdings(&account.id, &base)
+                .await?;
+            merged_holdings.append(&mut account_holdings);
+        }
+
+        return Ok(Json(merged_holdings));
+    }
+
+    let holdings = if let Some(group_name) = group_filter {
+        let account = state.account_service.get_account(&q.account_id)?;
+        if account.group.as_deref() == Some(group_name) {
+            state
+                .holdings_service
+                .get_holdings(&q.account_id, &base)
+                .await?
         } else {
-            let account = state.account_service.get_account(&q.account_id)?;
-            if account.group.as_deref() == Some(group_name) {
-                state
-                    .holdings_service
-                    .get_holdings(&q.account_id, &base)
-                    .await?
-            } else {
-                Vec::new()
-            }
+            Vec::new()
         }
     } else {
         state
@@ -131,9 +133,12 @@ pub async fn get_historical_valuations(
                 .map_err(|e| anyhow::anyhow!("Invalid endDate: {}", e))
         })
         .transpose()?;
-    let vals = state
-        .valuation_service
-        .get_historical_valuations(&q.account_id, start, end, q.group.clone())?;
+    let vals = state.valuation_service.get_historical_valuations(
+        &q.account_id,
+        start,
+        end,
+        q.group.clone(),
+    )?;
     Ok(Json(vals))
 }
 
