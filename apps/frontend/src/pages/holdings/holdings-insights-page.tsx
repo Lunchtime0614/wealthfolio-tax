@@ -34,7 +34,10 @@ export const HoldingsInsightsPage = ({
   const baseCurrency = settings?.baseCurrency ?? "USD";
 
   const accountId = accountIdProp ?? PORTFOLIO_ACCOUNT_ID;
-  const { accounts } = useAccounts({ filterActive: true });
+  const { accounts, isLoading: accountsLoading } = useAccounts({
+    filterActive: false,
+    includeArchived: true,
+  });
   const { holdings, isLoading: holdingsLoading } = useHoldings(accountId, group);
   const { allocations, isLoading: allocationsLoading } = usePortfolioAllocations(accountId, group);
 
@@ -158,7 +161,7 @@ export const HoldingsInsightsPage = ({
             holdings={[...cashHoldings, ...nonCashHoldings]}
             accounts={accounts}
             baseCurrency={baseCurrency}
-            isLoading={isLoading}
+            isLoading={isLoading || accountsLoading}
           />
 
           <DrillableAccountChart isLoading={isLoading} />
