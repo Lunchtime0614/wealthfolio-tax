@@ -72,6 +72,7 @@ export const QueryKeys = {
 
   // Market Data
   symbolSearch: "symbol-search",
+  INDEX_SPARKLINES: "indexSparklines",
 
   ASSET_HISTORY: "asset-history",
 

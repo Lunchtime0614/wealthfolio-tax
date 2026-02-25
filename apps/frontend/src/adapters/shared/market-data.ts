@@ -1,13 +1,14 @@
 // Market Data Commands
 import type {
-  SymbolSearchResult,
-  Asset,
-  Quote,
-  LatestQuoteSnapshot,
-  UpdateAssetProfile,
-  MarketDataProviderInfo,
-  ExchangeInfo,
-  ResolvedQuote,
+    Asset,
+    ExchangeInfo,
+    IndexSparkline,
+    LatestQuoteSnapshot,
+    MarketDataProviderInfo,
+    Quote,
+    ResolvedQuote,
+    SymbolSearchResult,
+    UpdateAssetProfile,
 } from "@/lib/types";
 import type { QuoteImport } from "@/lib/types/quote-import";
 import type { MarketDataProviderSetting } from "../types";
@@ -187,6 +188,15 @@ export const resolveSymbolQuote = async (
   } catch (_error) {
     logger.error("Error resolving symbol quote.");
     return null;
+  }
+};
+
+export const getIndexSparklines = async (symbols: string[]): Promise<IndexSparkline[]> => {
+  try {
+    return await invoke<IndexSparkline[]>("get_index_sparklines", { symbols });
+  } catch (error) {
+    logger.error("Error fetching index sparklines.");
+    throw error;
   }
 };
 

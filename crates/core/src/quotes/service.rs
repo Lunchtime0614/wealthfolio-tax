@@ -18,7 +18,7 @@ use crate::utils::time_utils;
 
 use super::client::{MarketDataClient, ProviderConfig};
 use super::import::{ImportValidationStatus, QuoteConverter, QuoteImport, QuoteValidator};
-use super::model::{DataSource, LatestQuotePair, Quote, ResolvedQuote, SymbolSearchResult};
+use super::model::{DataSource, IndexSparkline, LatestQuotePair, Quote, ResolvedQuote, SparklinePoint, SymbolSearchResult};
 use super::store::{ProviderSettingsStore, QuoteStore};
 use super::sync::{QuoteSyncService, QuoteSyncServiceTrait, SyncResult};
 use super::sync_state::{QuoteSyncState, SymbolSyncPlan, SyncMode, SyncStateStore};
@@ -219,6 +219,16 @@ pub trait QuoteServiceTrait: Send + Sync {
     ) -> Result<ResolvedQuote> {
         let _ = (symbol, exchange_mic, instrument_type);
         Ok(ResolvedQuote::default())
+    }
+
+    /// Fetch intraday sparkline data for a list of market index symbols.
+    ///
+    /// Returns 5-minute price bars for the most recent trading session.
+    /// Symbols should be in native provider format (e.g. "^DJI", "^GSPC", "^IXIC").
+    /// Returns an empty vec if the provider does not support intraday data.
+    async fn get_index_sparklines(&self, symbols: &[String]) -> Result<Vec<IndexSparkline>> {
+        let _ = symbols;
+        Ok(vec![])
     }
 
     /// Get asset profile from provider.
@@ -968,6 +978,60 @@ where
         }
     }
 
+    async fn get_index_sparklines(&self, symbols: &[String]) -> Result<Vec<IndexSparkline>> {
+        let client = self.client.read().await;
+        let mut results = Vec::with_capacity(symbols.len());
+
+        for symbol in symbols {
+            match client.get_intraday_quotes(symbol).await {
+                Ok(quotes) if !quotes.is_empty() => {
+                    // First bar's open is the session open price; fall back to close.
+                    let open_price = quotes.first().map(|q| q.open).unwrap_or_default();
+                    let current_price = quotes.last().map(|q| q.close).unwrap_or_default();
+
+                    let change = current_price - open_price;
+                    let change_percent = if open_price.is_zero() {
+                        rust_decimal::Decimal::ZERO
+                    } else {
+                        (change / open_price) * rust_decimal::Decimal::from(100)
+                    };
+
+                    let currency = quotes
+                        .first()
+                        .map(|q| q.currency.clone())
+                        .unwrap_or_else(|| "USD".to_string());
+
+                    let points = quotes
+                        .iter()
+                        .map(|q| SparklinePoint {
+                            timestamp: q.timestamp.timestamp(),
+                            price: q.close,
+                        })
+                        .collect();
+
+                    results.push(IndexSparkline {
+                        symbol: symbol.clone(),
+                        name: index_display_name(symbol),
+                        currency,
+                        current_price,
+                        open_price,
+                        change,
+                        change_percent,
+                        points,
+                    });
+                }
+                Ok(_) => {
+                    debug!("No intraday quotes returned for index '{}'", symbol);
+                }
+                Err(e) => {
+                    debug!("Intraday fetch failed for '{}': {}", symbol, e);
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
     async fn get_asset_profile(&self, asset: &Asset) -> Result<ProviderProfile> {
         self.client.read().await.get_profile(asset).await
     }
@@ -1612,6 +1676,21 @@ fn mic_to_yahoo_suffix(mic: &str) -> Option<&'static str> {
 ///    - Output the last known quote for each symbol (with the current day's timestamp)
 ///
 /// # Arguments
+/// Map a well-known index symbol to a human-readable display name.
+fn index_display_name(symbol: &str) -> String {
+    match symbol {
+        "^DJI" => "Dow Jones".to_string(),
+        "^GSPC" => "S&P 500".to_string(),
+        "^IXIC" => "NASDAQ".to_string(),
+        "^RUT" => "Russell 2000".to_string(),
+        "^N225" => "Nikkei 225".to_string(),
+        "^FTSE" => "FTSE 100".to_string(),
+        "^DAX" => "DAX".to_string(),
+        "^HSI" => "Hang Seng".to_string(),
+        other => other.to_string(),
+    }
+}
+
 /// * `quotes` - All quotes including lookback period
 /// * `required_symbols` - Symbols to fill
 /// * `start_date` - Start of the output range

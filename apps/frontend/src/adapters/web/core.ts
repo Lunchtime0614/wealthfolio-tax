@@ -95,6 +95,7 @@ export const COMMANDS: CommandMap = {
   resolve_symbol_quote: { method: "GET", path: "/market-data/resolve-currency" },
   get_quote_history: { method: "GET", path: "/market-data/quotes/history" },
   get_latest_quotes: { method: "POST", path: "/market-data/quotes/latest" },
+  get_index_sparklines: { method: "GET", path: "/market-data/index-sparklines" },
   update_quote: { method: "PUT", path: "/market-data/quotes" },
   delete_quote: { method: "DELETE", path: "/market-data/quotes/id" },
   check_quotes_import: { method: "POST", path: "/market-data/quotes/check" },
@@ -661,6 +662,13 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
     case "get_latest_quotes": {
       const { assetIds } = payload as { assetIds: string[] };
       body = JSON.stringify({ assetIds });
+      break;
+    }
+    case "get_index_sparklines": {
+      const { symbols } = payload as { symbols: string[] };
+      const params = new URLSearchParams();
+      for (const s of symbols) params.append("symbols[]", s);
+      url += `?${params.toString()}`;
       break;
     }
     case "update_quote": {

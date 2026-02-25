@@ -149,4 +149,25 @@ pub trait MarketDataProvider: Send + Sync {
             provider: self.id().to_string(),
         })
     }
+
+    /// Fetch recent intraday quote bars for a symbol.
+    ///
+    /// Returns 5-minute OHLCV bars for the most recent trading session.
+    /// Useful for sparkline charts showing intraday price movement.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbol` - The provider-native symbol string (e.g., "^DJI", "AAPL")
+    ///
+    /// # Returns
+    ///
+    /// A vector of quotes ordered by timestamp ascending, or `NotSupported`
+    /// if the provider does not offer intraday data.
+    async fn get_intraday_quotes(&self, symbol: &str) -> Result<Vec<Quote>, MarketDataError> {
+        let _ = symbol;
+        Err(MarketDataError::NotSupported {
+            operation: "intraday_quotes".to_string(),
+            provider: self.id().to_string(),
+        })
+    }
 }

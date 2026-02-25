@@ -274,6 +274,25 @@ impl MarketDataClient {
         Ok(Self::convert_quote(market_quote, &asset.id))
     }
 
+    /// Fetch intraday (5-minute) quotes for a raw provider symbol.
+    ///
+    /// Passes the symbol directly to the registry without resolver-chain conversion,
+    /// so use the native Yahoo symbol format (e.g., "^DJI", "AAPL").
+    pub async fn get_intraday_quotes(&self, symbol: &str) -> Result<Vec<Quote>> {
+        let market_quotes = self
+            .registry
+            .fetch_intraday_quotes(symbol)
+            .await
+            .map_err(MarketDataClientError::from)?;
+
+        let core_quotes = market_quotes
+            .into_iter()
+            .map(|mq| Self::convert_quote(mq, symbol))
+            .collect();
+
+        Ok(core_quotes)
+    }
+
     /// Build a QuoteContext from an Asset.
     fn build_quote_context(&self, asset: &Asset) -> Result<QuoteContext> {
         // Convert Asset to InstrumentId

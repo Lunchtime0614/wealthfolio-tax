@@ -2,10 +2,10 @@ import { HistoryChart } from "@/components/history-chart";
 import { useHoldings } from "@/hooks/use-holdings";
 import { useValuationHistory } from "@/hooks/use-valuation-history";
 import {
-  HoldingType,
-  isAlternativeAssetKind,
-  PORTFOLIO_ACCOUNT_ID,
-  type AssetKind,
+    HoldingType,
+    isAlternativeAssetKind,
+    PORTFOLIO_ACCOUNT_ID,
+    type AssetKind,
 } from "@/lib/constants";
 import { useSettingsContext } from "@/lib/settings-provider";
 import { DateRange, TimePeriod } from "@/lib/types";
@@ -13,17 +13,18 @@ import { calculatePerformanceMetrics } from "@/lib/utils";
 import { PortfolioUpdateTrigger } from "@/pages/dashboard/portfolio-update-trigger";
 import type { TimePeriod as UITimePeriod } from "@wealthfolio/ui";
 import {
-  GainAmount,
-  GainPercent,
-  getInitialIntervalData,
-  IntervalSelector,
-  usePersistentState,
+    GainAmount,
+    GainPercent,
+    getInitialIntervalData,
+    IntervalSelector,
+    usePersistentState,
 } from "@wealthfolio/ui";
 import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
 import { useMemo, useState } from "react";
 import { AccountsSummary } from "./accounts-summary";
 import Balance from "./balance";
 import SavingGoals from "./goals";
+import { MarketIndicesWidget } from "./market-indices-widget";
 import TopHoldings from "./top-holdings";
 
 const DEFAULT_INTERVAL: UITimePeriod = "3M";
@@ -166,6 +167,9 @@ export function DashboardContent() {
       </div>
 
       <div className="from-success/30 via-success/15 to-success/10 bg-linear-to-t grow px-4 pb-[calc(var(--mobile-nav-ui-height)+max(var(--mobile-nav-gap),env(safe-area-inset-bottom)))] pt-12 md:px-6 md:pb-6 md:pt-6 lg:px-10 lg:pb-8 lg:pt-8">
+        <div className="mb-4">
+          <MarketIndicesWidget />
+        </div>
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-3 lg:gap-20">
           <div className="lg:col-span-2">
             <AccountsSummary />

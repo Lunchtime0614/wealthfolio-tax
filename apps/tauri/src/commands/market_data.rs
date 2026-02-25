@@ -11,7 +11,7 @@ use crate::{
 use log::{debug, error};
 use tauri::{AppHandle, State};
 use wealthfolio_core::quotes::{
-    service::ProviderInfo, LatestQuoteSnapshot, MarketSyncMode, Quote, QuoteImport,
+    service::ProviderInfo, IndexSparkline, LatestQuoteSnapshot, MarketSyncMode, Quote, QuoteImport,
     SymbolSearchResult,
 };
 use wealthfolio_market_data::ExchangeInfo;
@@ -128,6 +128,18 @@ pub async fn get_latest_quotes(
     state
         .quote_service()
         .get_latest_quotes_snapshot(&asset_ids)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_index_sparklines(
+    symbols: Vec<String>,
+    state: State<'_, Arc<ServiceContext>>,
+) -> Result<Vec<IndexSparkline>, String> {
+    state
+        .quote_service()
+        .get_index_sparklines(&symbols)
+        .await
         .map_err(|e| e.to_string())
 }
 

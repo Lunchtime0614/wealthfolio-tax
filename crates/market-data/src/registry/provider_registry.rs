@@ -246,6 +246,63 @@ impl ProviderRegistry {
         Err(last_error.unwrap_or(MarketDataError::AllProvidersFailed))
     }
 
+    /// Fetch 5-minute intraday bars for a raw provider symbol.
+    ///
+    /// Tries providers in priority order until one succeeds.
+    /// Returns an empty vec if no provider supports intraday data.
+    pub async fn fetch_intraday_quotes(&self, symbol: &str) -> Result<Vec<Quote>, MarketDataError> {
+        if self.providers.is_empty() {
+            return Err(MarketDataError::NoProvidersAvailable);
+        }
+
+        // Order providers by custom priority, then default priority
+        let mut ordered: Vec<&Arc<dyn MarketDataProvider>> = self.providers.iter().collect();
+        ordered.sort_by_key(|p| {
+            self.custom_priorities
+                .get(p.id())
+                .map(|&cp| cp as u8)
+                .unwrap_or_else(|| p.priority())
+        });
+
+        for provider in ordered {
+            let provider_id: std::borrow::Cow<'_, str> =
+                std::borrow::Cow::Borrowed(provider.id());
+
+            if !self.circuit_breaker.is_allowed(&provider_id) {
+                continue;
+            }
+
+            self.rate_limiter.acquire(&provider_id).await;
+
+            match provider.get_intraday_quotes(symbol).await {
+                Ok(quotes) => {
+                    self.circuit_breaker.record_success(&provider_id);
+                    return Ok(quotes);
+                }
+                Err(MarketDataError::NotSupported { .. }) => {
+                    // Provider doesn't support intraday — try next
+                    continue;
+                }
+                Err(e) => {
+                    let retry_class = e.retry_class();
+                    if matches!(
+                        retry_class,
+                        RetryClass::FailoverWithPenalty | RetryClass::CircuitOpen
+                    ) {
+                        self.circuit_breaker.record_failure(&provider_id);
+                    }
+                    // Log and continue to next provider
+                    warn!("Intraday fetch from {} failed for {}: {}", provider.id(), symbol, e);
+                    continue;
+                }
+            }
+        }
+
+        // No provider could serve — return empty rather than error so the
+        // widget degrades gracefully.
+        Ok(vec![])
+    }
+
     /// Fetch the latest quote for an instrument.
     pub async fn fetch_latest_quote(
         &self,

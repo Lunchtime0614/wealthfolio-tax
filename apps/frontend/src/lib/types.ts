@@ -359,6 +359,23 @@ export interface ResolvedQuote {
   price?: number;
 }
 
+export interface SparklinePoint {
+  /** Unix timestamp in seconds */
+  timestamp: number;
+  price: number;
+}
+
+export interface IndexSparkline {
+  symbol: string;
+  name: string;
+  currency: string;
+  currentPrice: number;
+  openPrice: number;
+  change: number;
+  changePercent: number;
+  points: SparklinePoint[];
+}
+
 export interface ExchangeInfo {
   mic: string;
   name: string;

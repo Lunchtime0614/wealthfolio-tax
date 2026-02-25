@@ -10,51 +10,31 @@ export { isDesktop, isWeb, logger } from "./core";
 // Re-export types and constants from shared types
 export { RunEnvs } from "../types";
 export type {
-  AddonFile,
-  AddonInstallResult,
-  AddonManifest,
-  AddonUpdateCheckResult,
-  AddonUpdateInfo,
-  AddonValidationResult,
-  EventCallback,
-  ExtractedAddon,
-  FunctionPermission,
-  InstalledAddon,
-  Permission,
-  RunEnv,
-  UnlistenFn,
-  MarketDataProviderSetting,
-  ProviderCapabilities,
-  ImportRunsRequest,
-  UpdateThreadRequest,
-  UpdateToolResultRequest,
-  AppInfo,
-  UpdateCheckResult,
-  UpdateCheckPayload,
-  PlatformInfo,
-  BackendSyncStateResult,
-  BackendEnableSyncResult,
-  BackendSyncEngineStatusResult,
-  BackendSyncBootstrapResult,
-  BackendSyncCycleResult,
-  BackendSyncBackgroundEngineResult,
-  BackendSyncSnapshotUploadResult,
-  EphemeralKeyPair,
-  Logger,
+    AddonFile,
+    AddonInstallResult,
+    AddonManifest,
+    AddonUpdateCheckResult,
+    AddonUpdateInfo,
+    AddonValidationResult, AppInfo, BackendEnableSyncResult, BackendSyncBackgroundEngineResult, BackendSyncBootstrapResult,
+    BackendSyncCycleResult, BackendSyncEngineStatusResult, BackendSyncSnapshotUploadResult, BackendSyncStateResult, EphemeralKeyPair, EventCallback,
+    ExtractedAddon,
+    FunctionPermission, ImportRunsRequest, InstalledAddon, Logger, MarketDataProviderSetting, Permission, PlatformInfo, ProviderCapabilities, RunEnv,
+    UnlistenFn, UpdateCheckPayload, UpdateCheckResult, UpdateThreadRequest,
+    UpdateToolResultRequest
 } from "../types";
 
 // Re-export AI types from features/ai-assistant
 export type {
-  AiChatMessage,
-  AiChatModelConfig,
-  AiSendMessageRequest,
-  AiStreamEvent,
-  AiThread,
-  AiToolCall,
-  AiToolResult,
-  AiUsageStats,
-  ListThreadsRequest,
-  ThreadPage,
+    AiChatMessage,
+    AiChatModelConfig,
+    AiSendMessageRequest,
+    AiStreamEvent,
+    AiThread,
+    AiToolCall,
+    AiToolResult,
+    AiUsageStats,
+    ListThreadsRequest,
+    ThreadPage
 } from "@/features/ai-assistant/types";
 
 /**
@@ -67,201 +47,82 @@ export const RUN_ENV: RunEnv = RunEnvs.WEB;
 // ============================================================================
 
 // Account Commands
-export { getAccounts, createAccount, updateAccount, deleteAccount } from "../shared/accounts";
+export { createAccount, deleteAccount, getAccounts, updateAccount } from "../shared/accounts";
 
 // Activity Commands
 export {
-  getActivities,
-  searchActivities,
-  createActivity,
-  updateActivity,
-  saveActivities,
-  deleteActivity,
-  importActivities,
-  checkActivitiesImport,
-  getAccountImportMapping,
-  saveAccountImportMapping,
-  checkExistingDuplicates,
+    checkActivitiesImport, checkExistingDuplicates, createActivity, deleteActivity, getAccountImportMapping, getActivities, importActivities, saveAccountImportMapping, saveActivities, searchActivities, updateActivity
 } from "../shared/activities";
 export { parseCsv } from "./activities";
 
 // Goal Commands
 export {
-  getGoals,
-  createGoal,
-  updateGoal,
-  deleteGoal,
-  updateGoalsAllocations,
-  getGoalsAllocation,
+    createGoal, deleteGoal, getGoals, getGoalsAllocation, updateGoal, updateGoalsAllocations
 } from "../shared/goals";
 
 // Secrets Commands
-export { setSecret, getSecret, deleteSecret } from "../shared/secrets";
+export { deleteSecret, getSecret, setSecret } from "../shared/secrets";
 
 // Taxonomy Commands
 export {
-  getTaxonomies,
-  getTaxonomy,
-  createTaxonomy,
-  updateTaxonomy,
-  deleteTaxonomy,
-  createCategory,
-  updateCategory,
-  deleteCategory,
-  moveCategory,
-  importTaxonomyJson,
-  exportTaxonomyJson,
-  getAssetTaxonomyAssignments,
-  assignAssetToCategory,
-  removeAssetTaxonomyAssignment,
-  getMigrationStatus,
-  migrateLegacyClassifications,
+    assignAssetToCategory, createCategory, createTaxonomy, deleteCategory, deleteTaxonomy, exportTaxonomyJson,
+    getAssetTaxonomyAssignments, getMigrationStatus, getTaxonomies,
+    getTaxonomy, importTaxonomyJson, migrateLegacyClassifications, moveCategory, removeAssetTaxonomyAssignment, updateCategory, updateTaxonomy
 } from "../shared/taxonomies";
 
 // Portfolio Commands
 export {
-  updatePortfolio,
-  recalculatePortfolio,
-  getHoldings,
-  getIncomeSummary,
-  getHistoricalValuations,
-  getLatestValuations,
-  calculatePerformanceHistory,
-  calculatePerformanceSummary,
-  calculateAccountsSimplePerformance,
-  getHolding,
-  getAssetHoldings,
-  getPortfolioAllocations,
-  getHoldingsByAllocation,
-  saveManualHoldings,
-  importHoldingsCsv,
-  checkHoldingsImport,
-  getSnapshots,
-  getSnapshotByDate,
-  deleteSnapshot,
+    calculateAccountsSimplePerformance, calculatePerformanceHistory,
+    calculatePerformanceSummary, checkHoldingsImport, deleteSnapshot, getAssetHoldings, getHistoricalValuations, getHolding, getHoldings, getHoldingsByAllocation, getIncomeSummary, getLatestValuations, getPortfolioAllocations, getSnapshotByDate, getSnapshots, importHoldingsCsv, recalculatePortfolio, saveManualHoldings, updatePortfolio
 } from "../shared/portfolio";
 
 // Market Data Commands
 export {
-  searchTicker,
-  syncHistoryQuotes,
-  getAssetProfile,
-  getAssets,
-  getLatestQuotes,
-  updateAssetProfile,
-  deleteAsset,
-  updateQuoteMode,
-  updateQuote,
-  syncMarketData,
-  deleteQuote,
-  getQuoteHistory,
-  getMarketDataProviders,
-  getMarketDataProviderSettings,
-  updateMarketDataProviderSettings,
-  importManualQuotes,
-  checkQuotesImport,
-  getExchanges,
-  resolveSymbolQuote,
+    checkQuotesImport, deleteAsset, deleteQuote, getAssetProfile,
+    getAssets, getExchanges, getIndexSparklines, getLatestQuotes, getMarketDataProviders,
+    getMarketDataProviderSettings, getQuoteHistory, importManualQuotes, resolveSymbolQuote, searchTicker,
+    syncHistoryQuotes, syncMarketData, updateAssetProfile, updateMarketDataProviderSettings, updateQuote, updateQuoteMode
 } from "../shared/market-data";
 
 // Contribution Limits Commands
 export {
-  getContributionLimit,
-  createContributionLimit,
-  updateContributionLimit,
-  deleteContributionLimit,
-  calculateDepositsForLimit,
+    calculateDepositsForLimit, createContributionLimit, deleteContributionLimit, getContributionLimit, updateContributionLimit
 } from "../shared/contribution-limits";
 
 // Exchange Rates Commands
 export {
-  getExchangeRates,
-  updateExchangeRate,
-  addExchangeRate,
-  deleteExchangeRate,
+    addExchangeRate,
+    deleteExchangeRate, getExchangeRates,
+    updateExchangeRate
 } from "../shared/exchange-rates";
 
 // Alternative Assets Commands
 export {
-  createAlternativeAsset,
-  updateAlternativeAssetValuation,
-  deleteAlternativeAsset,
-  linkLiability,
-  unlinkLiability,
-  getNetWorth,
-  updateAlternativeAssetMetadata,
-  getAlternativeHoldings,
-  getNetWorthHistory,
+    createAlternativeAsset, deleteAlternativeAsset, getAlternativeHoldings, getNetWorth, getNetWorthHistory, linkLiability,
+    unlinkLiability, updateAlternativeAssetMetadata, updateAlternativeAssetValuation
 } from "../shared/alternative-assets";
 
 // Connect Commands (Broker + Device Sync + Auth)
 export {
-  syncBrokerData,
-  getSyncedAccounts,
-  getPlatforms,
-  listBrokerConnections,
-  listBrokerAccounts,
-  getSubscriptionPlans,
-  getSubscriptionPlansPublic,
-  getUserInfo,
-  getBrokerSyncStates,
-  getImportRuns,
-  getDeviceSyncState,
-  enableDeviceSync,
-  clearDeviceSyncData,
-  reinitializeDeviceSync,
-  getSyncEngineStatus,
-  syncBootstrapSnapshotIfNeeded,
-  syncTriggerCycle,
-  getDevice,
-  listDevices,
-  updateDevice,
-  deleteDevice,
-  revokeDevice,
-  resetTeamSync,
-  createPairing,
-  getPairing,
-  approvePairing,
-  completePairing,
-  cancelPairing,
-  claimPairing,
-  getPairingMessages,
-  confirmPairing,
-  storeSyncSession,
-  clearSyncSession,
+    approvePairing, cancelPairing,
+    claimPairing, clearDeviceSyncData, clearSyncSession, completePairing, confirmPairing, createPairing, deleteDevice, enableDeviceSync, getBrokerSyncStates, getDevice, getDeviceSyncState, getImportRuns, getPairing, getPairingMessages, getPlatforms, getSubscriptionPlans,
+    getSubscriptionPlansPublic, getSyncedAccounts, getSyncEngineStatus, getUserInfo, listBrokerAccounts, listBrokerConnections, listDevices, reinitializeDeviceSync, resetTeamSync, revokeDevice, storeSyncSession, syncBootstrapSnapshotIfNeeded, syncBrokerData, syncTriggerCycle, updateDevice
 } from "../shared/connect";
 
 // AI Providers Commands
 export {
-  getAiProviders,
-  updateAiProviderSettings,
-  setDefaultAiProvider,
-  listAiModels,
+    getAiProviders, listAiModels, setDefaultAiProvider, updateAiProviderSettings
 } from "../shared/ai-providers";
 
 // AI Threads Commands
 export {
-  listAiThreads,
-  getAiThread,
-  getAiThreadMessages,
-  updateAiThread,
-  deleteAiThread,
-  addAiThreadTag,
-  removeAiThreadTag,
-  getAiThreadTags,
-  updateToolResult,
+    addAiThreadTag, deleteAiThread, getAiThread,
+    getAiThreadMessages, getAiThreadTags, listAiThreads, removeAiThreadTag, updateAiThread, updateToolResult
 } from "../shared/ai-threads";
 
 // Health Center Commands
 export {
-  getHealthStatus,
-  runHealthChecks,
-  dismissHealthIssue,
-  restoreHealthIssue,
-  getDismissedHealthIssues,
-  executeHealthFix,
-  getHealthConfig,
-  updateHealthConfig,
+    dismissHealthIssue, executeHealthFix, getDismissedHealthIssues, getHealthConfig, getHealthStatus, restoreHealthIssue, runHealthChecks, updateHealthConfig
 } from "../shared/health";
 
 // ============================================================================
@@ -273,82 +134,34 @@ export { streamAiChat } from "./ai-streaming";
 
 // Event Listeners (web-specific SSE implementation)
 export {
-  listenPortfolioUpdateStart,
-  listenPortfolioUpdateComplete,
-  listenPortfolioUpdateError,
-  listenMarketSyncStart,
-  listenMarketSyncComplete,
-  listenFileDropHover,
-  listenFileDrop,
-  listenFileDropCancelled,
-  listenDatabaseRestored,
-  listenNavigateToRoute,
-  listenDeepLink,
-  listenBrokerSyncStart,
-  listenBrokerSyncComplete,
-  listenBrokerSyncError,
+    listenBrokerSyncComplete,
+    listenBrokerSyncError, listenBrokerSyncStart, listenDatabaseRestored, listenDeepLink, listenFileDrop,
+    listenFileDropCancelled, listenFileDropHover, listenMarketSyncComplete, listenMarketSyncStart, listenNavigateToRoute, listenPortfolioUpdateComplete,
+    listenPortfolioUpdateError, listenPortfolioUpdateStart
 } from "./events";
 
 // File Dialogs (web-specific implementations)
 export {
-  openCsvFileDialog,
-  openFolderDialog,
-  openDatabaseFileDialog,
-  openFileSaveDialog,
-  openUrlInBrowser,
+    openCsvFileDialog, openDatabaseFileDialog,
+    openFileSaveDialog, openFolderDialog, openUrlInBrowser
 } from "./files";
 
 // Settings Commands (web-specific API for backups and updates)
 export {
-  getSettings,
-  updateSettings,
-  isAutoUpdateCheckEnabled,
-  backupDatabase,
-  backupDatabaseToPath,
-  restoreDatabase,
-  getAppInfo,
-  checkForUpdates,
-  installUpdate,
-  getPlatform,
+    backupDatabase,
+    backupDatabaseToPath, checkForUpdates, getAppInfo, getPlatform, getSettings, installUpdate, isAutoUpdateCheckEnabled, restoreDatabase, updateSettings
 } from "./settings";
 
 // Addon Commands (web-specific implementations)
 export {
-  extractAddonZip,
-  installAddonZip,
-  installAddonFile,
-  listInstalledAddons,
-  toggleAddon,
-  uninstallAddon,
-  loadAddonForRuntime,
-  getEnabledAddonsOnStartup,
-  getInstalledAddons,
-  loadAddon,
-  extractAddon,
-  installAddon,
-  getEnabledAddons,
-  checkAddonUpdate,
-  checkAllAddonUpdates,
-  updateAddon,
-  downloadAddonForReview,
-  installFromStaging,
-  clearAddonStaging,
-  getAddonRatings,
-  submitAddonRating,
-  fetchAddonStoreListings,
+    checkAddonUpdate,
+    checkAllAddonUpdates, clearAddonStaging, downloadAddonForReview, extractAddon, extractAddonZip, fetchAddonStoreListings, getAddonRatings, getEnabledAddons, getEnabledAddonsOnStartup,
+    getInstalledAddons, installAddon, installAddonFile, installAddonZip, installFromStaging, listInstalledAddons, loadAddon, loadAddonForRuntime, submitAddonRating, toggleAddon,
+    uninstallAddon, updateAddon
 } from "./addons";
 
 // Crypto Commands (web stubs - not available in web mode)
 export {
-  syncGenerateRootKey,
-  syncDeriveDek,
-  syncGenerateKeypair,
-  syncComputeSharedSecret,
-  syncDeriveSessionKey,
-  syncEncrypt,
-  syncDecrypt,
-  syncGeneratePairingCode,
-  syncHashPairingCode,
-  syncComputeSas,
-  syncGenerateDeviceId,
+    syncComputeSas, syncComputeSharedSecret, syncDecrypt, syncDeriveDek, syncDeriveSessionKey,
+    syncEncrypt, syncGenerateDeviceId, syncGenerateKeypair, syncGeneratePairingCode, syncGenerateRootKey, syncHashPairingCode
 } from "./crypto";

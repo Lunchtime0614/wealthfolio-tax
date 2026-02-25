@@ -202,6 +202,41 @@ pub struct ResolvedQuote {
     pub price: Option<Decimal>,
 }
 
+/// A single price point in a sparkline series.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SparklinePoint {
+    /// Unix timestamp (seconds).
+    pub timestamp: i64,
+    /// Closing price at this bar.
+    pub price: Decimal,
+}
+
+/// Intraday chart data for a market index, used for dashboard sparkline widgets.
+///
+/// Contains the current session's 5-minute bars plus summary statistics so the
+/// frontend can render a Name / Price / Sparkline tile without additional calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexSparkline {
+    /// Provider-native symbol (e.g. "^DJI", "^GSPC").
+    pub symbol: String,
+    /// Human-readable display name (e.g. "Dow Jones", "S&P 500").
+    pub name: String,
+    /// ISO 4217 currency code (e.g. "USD").
+    pub currency: String,
+    /// Most recent close price in the session.
+    pub current_price: Decimal,
+    /// Opening price of the first bar of the session.
+    pub open_price: Decimal,
+    /// Absolute change from open to current (current − open).
+    pub change: Decimal,
+    /// Percentage change from open to current.
+    pub change_percent: Decimal,
+    /// Ordered 5-minute price bars for the sparkline chart.
+    pub points: Vec<SparklinePoint>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

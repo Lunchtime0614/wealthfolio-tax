@@ -12,7 +12,8 @@ use axum::{
     Json, Router,
 };
 use wealthfolio_core::quotes::{
-    LatestQuoteSnapshot, MarketSyncMode, ProviderInfo, Quote, QuoteImport, SymbolSearchResult,
+    IndexSparkline, LatestQuoteSnapshot, MarketSyncMode, ProviderInfo, Quote, QuoteImport,
+    SymbolSearchResult,
 };
 use wealthfolio_market_data::ExchangeInfo;
 
@@ -251,6 +252,23 @@ async fn resolve_symbol_quote(
     Ok(Json(res))
 }
 
+#[derive(serde::Deserialize)]
+struct IndexSparklineQuery {
+    #[serde(rename = "symbols[]")]
+    symbols: Vec<String>,
+}
+
+async fn get_index_sparklines(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<IndexSparklineQuery>,
+) -> ApiResult<Json<Vec<IndexSparkline>>> {
+    let results = state
+        .quote_service
+        .get_index_sparklines(&q.symbols)
+        .await?;
+    Ok(Json(results))
+}
+
 async fn get_exchanges() -> Json<Vec<ExchangeInfo>> {
     Json(wealthfolio_market_data::get_exchange_list())
 }
@@ -265,6 +283,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/market-data/search", get(search_symbol))
         .route("/market-data/resolve-currency", get(resolve_symbol_quote))
+        .route("/market-data/index-sparklines", get(get_index_sparklines))
         .route("/market-data/quotes/history", get(get_quote_history))
         .route("/market-data/quotes/latest", post(get_latest_quotes))
         .route("/market-data/quotes/{symbol}", put(update_quote))

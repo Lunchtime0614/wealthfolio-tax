@@ -885,6 +885,50 @@ impl MarketDataProvider for YahooProvider {
         );
         Ok(profile)
     }
+
+    async fn get_intraday_quotes(&self, symbol: &str) -> Result<Vec<Quote>, MarketDataError> {
+        debug!("Fetching intraday quotes (5m) for {} from Yahoo", symbol);
+
+        // Skip cash symbols - they have no intraday data
+        if symbol.starts_with("CASH:") {
+            return Ok(vec![]);
+        }
+
+        let response = self
+            .connector
+            .get_latest_quotes(symbol, "5m")
+            .await
+            .map_err(|e| self.convert_yahoo_error(e, symbol))?;
+
+        // Prefer Yahoo's own currency from response metadata
+        let currency = response
+            .metadata()
+            .ok()
+            .and_then(|m| m.currency)
+            .unwrap_or_else(|| "USD".to_string());
+
+        match response.quotes() {
+            Ok(yahoo_quotes) => {
+                let quotes: Vec<Quote> = yahoo_quotes
+                    .into_iter()
+                    .filter_map(|q| match self.yahoo_quote_to_quote(q, currency.clone()) {
+                        Ok(quote) => Some(quote),
+                        Err(e) => {
+                            warn!("Skipping intraday quote due to conversion error: {:?}", e);
+                            None
+                        }
+                    })
+                    .collect();
+
+                Ok(quotes)
+            }
+            Err(yahoo::YahooError::NoQuotes) => {
+                warn!("No intraday quotes returned for '{}'", symbol);
+                Ok(vec![])
+            }
+            Err(e) => Err(self.convert_yahoo_error(e, symbol)),
+        }
+    }
 }
 
 // ============================================================================
