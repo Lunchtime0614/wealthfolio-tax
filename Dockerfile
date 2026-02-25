@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Global build args
 ARG RUST_IMAGE=rust:1.91-alpine
 
@@ -17,7 +18,9 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY . .
 ENV CI=1
 ENV BUILD_TARGET=web
-RUN npm install -g pnpm@9.9.0 && pnpm install --frozen-lockfile
+RUN npm install -g pnpm@9.9.0
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm-store \
+    pnpm install --frozen-lockfile --store-dir=/pnpm-store
 # Build only the main app to avoid building workspace addons in this image
 RUN pnpm --filter frontend... build && mv dist /web-dist
 
@@ -49,7 +52,9 @@ COPY apps/server ./apps/server
 # Stub out apps/tauri so the workspace resolves (not built in Docker)
 COPY apps/tauri/Cargo.toml apps/tauri/Cargo.toml
 RUN mkdir -p apps/tauri/src && echo "fn main(){}" > apps/tauri/src/main.rs && echo "" > apps/tauri/src/lib.rs
-RUN mkdir -p apps/server/src && \
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=cargo-target-${TARGETPLATFORM},target=/app/target \
+    mkdir -p apps/server/src && \
     echo "fn main(){}" > apps/server/src/main.rs && \
     xx-cargo fetch --manifest-path apps/server/Cargo.toml
 
@@ -59,7 +64,9 @@ COPY apps/server ./apps/server
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 ENV OPENSSL_STATIC=1
 # Build using xx-cargo which handles target flags
-RUN xx-cargo build --release --manifest-path apps/server/Cargo.toml && \
+RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=cargo-target-${TARGETPLATFORM},target=/app/target \
+    xx-cargo build --release --manifest-path apps/server/Cargo.toml && \
     # Move the binary to a predictable location because the target dir changes with --target
     cp target/$(xx-cargo --print-target-triple)/release/wealthfolio-server /wealthfolio-server
 
