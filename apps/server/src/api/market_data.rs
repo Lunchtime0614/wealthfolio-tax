@@ -254,18 +254,21 @@ async fn resolve_symbol_quote(
 
 #[derive(serde::Deserialize)]
 struct IndexSparklineQuery {
-    #[serde(rename = "symbols[]")]
-    symbols: Vec<String>,
+    /// Comma-separated list of index symbols, e.g. "^DJI,^GSPC,^IXIC"
+    symbols: String,
 }
 
 async fn get_index_sparklines(
     State(state): State<Arc<AppState>>,
     Query(q): Query<IndexSparklineQuery>,
 ) -> ApiResult<Json<Vec<IndexSparkline>>> {
-    let results = state
-        .quote_service
-        .get_index_sparklines(&q.symbols)
-        .await?;
+    let symbols: Vec<String> = q
+        .symbols
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let results = state.quote_service.get_index_sparklines(&symbols).await?;
     Ok(Json(results))
 }
 

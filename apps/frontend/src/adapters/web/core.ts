@@ -667,7 +667,7 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
     case "get_index_sparklines": {
       const { symbols } = payload as { symbols: string[] };
       const params = new URLSearchParams();
-      for (const s of symbols) params.append("symbols[]", s);
+      params.set("symbols", symbols.join(","));
       url += `?${params.toString()}`;
       break;
     }
