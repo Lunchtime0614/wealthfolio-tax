@@ -229,9 +229,9 @@ pub struct IndexSparkline {
     pub current_price: Decimal,
     /// Opening price of the first bar of the session.
     pub open_price: Decimal,
-    /// Absolute change from open to current (current − open).
+    /// Absolute change from previous market close to current (current − previous close).
     pub change: Decimal,
-    /// Percentage change from open to current.
+    /// Percentage change from previous close to current.
     pub change_percent: Decimal,
     /// Ordered 5-minute price bars for the sparkline chart.
     pub points: Vec<SparklinePoint>,

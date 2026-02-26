@@ -989,17 +989,59 @@ where
                     let open_price = quotes.first().map(|q| q.open).unwrap_or_default();
                     let current_price = quotes.last().map(|q| q.close).unwrap_or_default();
 
-                    let change = current_price - open_price;
-                    let change_percent = if open_price.is_zero() {
-                        rust_decimal::Decimal::ZERO
-                    } else {
-                        (change / open_price) * rust_decimal::Decimal::from(100)
-                    };
-
                     let currency = quotes
                         .first()
                         .map(|q| q.currency.clone())
                         .unwrap_or_else(|| "USD".to_string());
+
+                    let session_day = quotes
+                        .last()
+                        .map(|q| q.timestamp.date_naive())
+                        .unwrap_or_else(|| Utc::now().date_naive());
+
+                    let history_start = session_day - Duration::days(10);
+                    let history_end = session_day;
+
+                    let temp_asset = Asset {
+                        id: symbol.clone(),
+                        instrument_symbol: Some(symbol.clone()),
+                        display_code: Some(symbol.clone()),
+                        kind: AssetKind::Investment,
+                        instrument_type: Some(InstrumentType::Equity),
+                        quote_ccy: currency.clone(),
+                        quote_mode: QuoteMode::Market,
+                        ..Default::default()
+                    };
+
+                    let previous_close = match client
+                        .fetch_historical_quotes(
+                            &temp_asset,
+                            Utc.from_utc_datetime(&history_start.and_hms_opt(0, 0, 0).unwrap()),
+                            Utc.from_utc_datetime(&history_end.and_hms_opt(23, 59, 59).unwrap()),
+                        )
+                        .await
+                    {
+                        Ok(history) => history
+                            .into_iter()
+                            .filter(|q| q.timestamp.date_naive() < session_day)
+                            .max_by_key(|q| q.timestamp)
+                            .map(|q| q.close)
+                            .unwrap_or(open_price),
+                        Err(err) => {
+                            debug!(
+                                "Historical fetch failed for index '{}' when deriving previous close: {}",
+                                symbol, err
+                            );
+                            open_price
+                        }
+                    };
+
+                    let change = current_price - previous_close;
+                    let change_percent = if previous_close.is_zero() {
+                        rust_decimal::Decimal::ZERO
+                    } else {
+                        (change / previous_close) * rust_decimal::Decimal::from(100)
+                    };
 
                     let points = quotes
                         .iter()

@@ -20,6 +20,14 @@ function formatChangePercent(pct: number): string {
   return `${sign}${pct.toFixed(2)}%`;
 }
 
+function formatChangeValue(change: number): string {
+  const sign = change >= 0 ? "+" : "";
+  return `${sign}${new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(change)}`;
+}
+
 // ---------------------------------------------------------------------------
 // Single index tile
 // ---------------------------------------------------------------------------
@@ -46,7 +54,7 @@ function IndexTile({ sparkline }: IndexTileProps) {
           className="text-xs tabular-nums"
           style={{ color }}
         >
-          {formatChangePercent(sparkline.changePercent)}
+          {formatChangeValue(sparkline.change)} ({formatChangePercent(sparkline.changePercent)})
         </p>
       </div>
 
