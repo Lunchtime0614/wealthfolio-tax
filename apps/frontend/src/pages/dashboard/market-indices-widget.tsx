@@ -1,7 +1,7 @@
 import { useMarketIndices } from "@/hooks/use-market-indices";
 import type { IndexSparkline } from "@/lib/types";
 import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
-import { Area, AreaChart, ResponsiveContainer, XAxis } from "recharts";
+import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -46,6 +46,14 @@ function IndexTile({ sparkline }: IndexTileProps) {
   }));
   const sessionStartMs = chartData[0]?.timestampMs ?? Date.now();
   const sessionEndMs = sessionStartMs + (6 * 60 + 30) * 60 * 1000;
+  const prices = chartData.map((p) => p.price);
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+  const spread = maxPrice - minPrice;
+  const fallbackPadding = maxPrice * 0.0002;
+  const yPadding = Math.max(spread * 0.15, fallbackPadding);
+  const yMin = minPrice - yPadding;
+  const yMax = maxPrice + yPadding;
 
   return (
     <div className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg border border-border/40 bg-card/50 px-3 py-2">
@@ -74,6 +82,12 @@ function IndexTile({ sparkline }: IndexTileProps) {
                 domain={[sessionStartMs, sessionEndMs]}
                 hide
               />
+              <YAxis
+                type="number"
+                domain={[yMin, yMax]}
+                hide
+                allowDataOverflow
+              />
               <defs>
                 <linearGradient id={`sparkGrad-${sparkline.symbol}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={color} stopOpacity={0.25} />
@@ -86,6 +100,7 @@ function IndexTile({ sparkline }: IndexTileProps) {
                 stroke={color}
                 strokeWidth={1.5}
                 fill={`url(#sparkGrad-${sparkline.symbol})`}
+                baseValue="dataMin"
                 dot={false}
                 isAnimationActive={false}
               />
