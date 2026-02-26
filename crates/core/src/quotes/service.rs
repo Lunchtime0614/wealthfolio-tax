@@ -18,7 +18,10 @@ use crate::utils::time_utils;
 
 use super::client::{MarketDataClient, ProviderConfig};
 use super::import::{ImportValidationStatus, QuoteConverter, QuoteImport, QuoteValidator};
-use super::model::{DataSource, IndexSparkline, LatestQuotePair, Quote, ResolvedQuote, SparklinePoint, SymbolSearchResult};
+use super::model::{
+    DataSource, IndexSparkline, LatestQuotePair, Quote, ResolvedQuote, SparklinePoint,
+    SymbolSearchResult,
+};
 use super::store::{ProviderSettingsStore, QuoteStore};
 use super::sync::{QuoteSyncService, QuoteSyncServiceTrait, SyncResult};
 use super::sync_state::{QuoteSyncState, SymbolSyncPlan, SyncMode, SyncStateStore};
@@ -1005,14 +1008,8 @@ where
                     }
 
                     // First bar's open is the session open price; fall back to close.
-                    let open_price = session_quotes
-                        .first()
-                        .map(|q| q.open)
-                        .unwrap_or_default();
-                    let current_price = session_quotes
-                        .last()
-                        .map(|q| q.close)
-                        .unwrap_or_default();
+                    let open_price = session_quotes.first().map(|q| q.open).unwrap_or_default();
+                    let current_price = session_quotes.last().map(|q| q.close).unwrap_or_default();
 
                     let currency = session_quotes
                         .first()
