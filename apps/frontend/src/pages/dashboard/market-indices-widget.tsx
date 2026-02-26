@@ -1,7 +1,7 @@
 import { useMarketIndices } from "@/hooks/use-market-indices";
 import type { IndexSparkline } from "@/lib/types";
 import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
-import { Area, AreaChart, ResponsiveContainer } from "recharts";
+import { Area, AreaChart, ResponsiveContainer, XAxis } from "recharts";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -40,7 +40,12 @@ function IndexTile({ sparkline }: IndexTileProps) {
   const isPositive = sparkline.change >= 0;
   const color = isPositive ? "var(--success)" : "var(--destructive)";
 
-  const chartData = sparkline.points.map((p) => ({ price: p.price }));
+  const chartData = sparkline.points.map((p) => ({
+    price: p.price,
+    timestampMs: p.timestamp * 1000,
+  }));
+  const sessionStartMs = chartData[0]?.timestampMs ?? Date.now();
+  const sessionEndMs = sessionStartMs + (6 * 60 + 30) * 60 * 1000;
 
   return (
     <div className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg border border-border/40 bg-card/50 px-3 py-2">
@@ -63,6 +68,12 @@ function IndexTile({ sparkline }: IndexTileProps) {
         <div className="h-10 w-20 shrink-0">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
+              <XAxis
+                dataKey="timestampMs"
+                type="number"
+                domain={[sessionStartMs, sessionEndMs]}
+                hide
+              />
               <defs>
                 <linearGradient id={`sparkGrad-${sparkline.symbol}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={color} stopOpacity={0.25} />

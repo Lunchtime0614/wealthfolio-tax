@@ -896,7 +896,7 @@ impl MarketDataProvider for YahooProvider {
 
         let response = self
             .connector
-            .get_latest_quotes(symbol, "5m")
+            .get_latest_quotes(symbol, "1d")
             .await
             .map_err(|e| self.convert_yahoo_error(e, symbol))?;
 

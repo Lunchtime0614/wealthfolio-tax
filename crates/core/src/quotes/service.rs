@@ -985,19 +985,39 @@ where
         for symbol in symbols {
             match client.get_intraday_quotes(symbol).await {
                 Ok(quotes) if !quotes.is_empty() => {
-                    // First bar's open is the session open price; fall back to close.
-                    let open_price = quotes.first().map(|q| q.open).unwrap_or_default();
-                    let current_price = quotes.last().map(|q| q.close).unwrap_or_default();
-
-                    let currency = quotes
-                        .first()
-                        .map(|q| q.currency.clone())
-                        .unwrap_or_else(|| "USD".to_string());
-
                     let session_day = quotes
                         .last()
                         .map(|q| q.timestamp.date_naive())
                         .unwrap_or_else(|| Utc::now().date_naive());
+
+                    // Keep only the most recent session day so sparkline resets each market day.
+                    let session_quotes: Vec<&Quote> = quotes
+                        .iter()
+                        .filter(|q| q.timestamp.date_naive() == session_day)
+                        .collect();
+
+                    if session_quotes.is_empty() {
+                        debug!(
+                            "No session-matching intraday quotes for index '{}' on {}",
+                            symbol, session_day
+                        );
+                        continue;
+                    }
+
+                    // First bar's open is the session open price; fall back to close.
+                    let open_price = session_quotes
+                        .first()
+                        .map(|q| q.open)
+                        .unwrap_or_default();
+                    let current_price = session_quotes
+                        .last()
+                        .map(|q| q.close)
+                        .unwrap_or_default();
+
+                    let currency = session_quotes
+                        .first()
+                        .map(|q| q.currency.clone())
+                        .unwrap_or_else(|| "USD".to_string());
 
                     let history_start = session_day - Duration::days(10);
                     let history_end = session_day;
@@ -1043,7 +1063,7 @@ where
                         (change / previous_close) * rust_decimal::Decimal::from(100)
                     };
 
-                    let points = quotes
+                    let points = session_quotes
                         .iter()
                         .map(|q| SparklinePoint {
                             timestamp: q.timestamp.timestamp(),
