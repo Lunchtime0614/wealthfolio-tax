@@ -1,7 +1,7 @@
 import { useMarketIndices } from "@/hooks/use-market-indices";
 import type { IndexSparkline } from "@/lib/types";
 import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
-import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -36,17 +36,66 @@ interface IndexTileProps {
   sparkline: IndexSparkline;
 }
 
+interface SegmentedPoint {
+  timestampMs: number;
+  abovePrice: number | null;
+  belowPrice: number | null;
+}
+
+function buildSegmentedChartData(points: IndexSparkline["points"], previousClose: number): SegmentedPoint[] {
+  if (points.length === 0) {
+    return [];
+  }
+
+  const segmented: SegmentedPoint[] = [];
+  const toMs = (timestampSec: number) => timestampSec * 1000;
+
+  const first = points[0];
+  segmented.push({
+    timestampMs: toMs(first.timestamp),
+    abovePrice: first.price >= previousClose ? first.price : null,
+    belowPrice: first.price < previousClose ? first.price : null,
+  });
+
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const prevDiff = prev.price - previousClose;
+    const currDiff = curr.price - previousClose;
+    const crosses = (prevDiff < 0 && currDiff > 0) || (prevDiff > 0 && currDiff < 0);
+
+    if (crosses) {
+      const span = curr.price - prev.price;
+      if (span !== 0) {
+        const ratio = (previousClose - prev.price) / span;
+        const crossTimestamp = prev.timestamp + (curr.timestamp - prev.timestamp) * ratio;
+        segmented.push({
+          timestampMs: toMs(crossTimestamp),
+          abovePrice: previousClose,
+          belowPrice: previousClose,
+        });
+      }
+    }
+
+    segmented.push({
+      timestampMs: toMs(curr.timestamp),
+      abovePrice: curr.price >= previousClose ? curr.price : null,
+      belowPrice: curr.price < previousClose ? curr.price : null,
+    });
+  }
+
+  return segmented;
+}
+
 function IndexTile({ sparkline }: IndexTileProps) {
   const isPositive = sparkline.change >= 0;
-  const color = isPositive ? "var(--success)" : "var(--destructive)";
+  const summaryColor = isPositive ? "var(--success)" : "var(--destructive)";
+  const previousClose = sparkline.currentPrice - sparkline.change;
 
-  const chartData = sparkline.points.map((p) => ({
-    price: p.price,
-    timestampMs: p.timestamp * 1000,
-  }));
+  const chartData = buildSegmentedChartData(sparkline.points, previousClose);
   const sessionStartMs = chartData[0]?.timestampMs ?? Date.now();
   const sessionEndMs = sessionStartMs + (6 * 60 + 30) * 60 * 1000;
-  const prices = chartData.map((p) => p.price);
+  const prices = sparkline.points.map((p) => p.price);
   const minPrice = Math.min(...prices);
   const maxPrice = Math.max(...prices);
   const spread = maxPrice - minPrice;
@@ -65,7 +114,7 @@ function IndexTile({ sparkline }: IndexTileProps) {
         </p>
         <p
           className="text-xs tabular-nums"
-          style={{ color }}
+          style={{ color: summaryColor }}
         >
           {formatChangeValue(sparkline.change)} ({formatChangePercent(sparkline.changePercent)})
         </p>
@@ -88,18 +137,40 @@ function IndexTile({ sparkline }: IndexTileProps) {
                 hide
                 allowDataOverflow
               />
+              <ReferenceLine
+                y={previousClose}
+                stroke="var(--muted-foreground)"
+                strokeOpacity={0.45}
+                strokeDasharray="3 3"
+              />
               <defs>
-                <linearGradient id={`sparkGrad-${sparkline.symbol}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={color} stopOpacity={0.25} />
-                  <stop offset="95%" stopColor={color} stopOpacity={0.02} />
+                <linearGradient id={`sparkGradUp-${sparkline.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--success)" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="var(--success)" stopOpacity={0.02} />
+                </linearGradient>
+                <linearGradient id={`sparkGradDown-${sparkline.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--destructive)" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="var(--destructive)" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
               <Area
                 type="monotone"
-                dataKey="price"
-                stroke={color}
+                dataKey="abovePrice"
+                stroke="var(--success)"
                 strokeWidth={1.5}
-                fill={`url(#sparkGrad-${sparkline.symbol})`}
+                fill={`url(#sparkGradUp-${sparkline.symbol})`}
+                connectNulls={false}
+                baseValue="dataMin"
+                dot={false}
+                isAnimationActive={false}
+              />
+              <Area
+                type="monotone"
+                dataKey="belowPrice"
+                stroke="var(--destructive)"
+                strokeWidth={1.5}
+                fill={`url(#sparkGradDown-${sparkline.symbol})`}
+                connectNulls={false}
                 baseValue="dataMin"
                 dot={false}
                 isAnimationActive={false}
