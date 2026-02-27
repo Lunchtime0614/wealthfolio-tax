@@ -32,7 +32,7 @@ const intervals: IntervalData[] = [
   {
     code: "1D",
     description: intervalDescriptions["1D"],
-    calculateRange: () => ({ from: subDays(new Date(), 1), to: new Date() }),
+    calculateRange: () => ({ from: subDays(new Date(), 7), to: new Date() }),
   },
   {
     code: "1W",

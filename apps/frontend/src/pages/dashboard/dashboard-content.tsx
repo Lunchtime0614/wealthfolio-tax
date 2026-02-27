@@ -40,6 +40,7 @@ export function DashboardContent() {
   const [selectedIntervalDescription, setSelectedIntervalDescription] = useState<string>(
     () => getInitialIntervalData(intervalCode).description,
   );
+  const [selectedIntervalCode, setSelectedIntervalCode] = useState<UITimePeriod>(intervalCode);
   const [isAllTime, setIsAllTime] = useState<boolean>(() => intervalCode === "ALL");
 
   const { holdings: allHoldings, isLoading: isHoldingsLoading } = useHoldings(PORTFOLIO_ACCOUNT_ID);
@@ -73,8 +74,10 @@ export function DashboardContent() {
 
   // Calculate gainLossAmount and simpleReturn from valuationHistory
   const { gainLossAmount, simpleReturn } = useMemo(() => {
-    return calculatePerformanceMetrics(valuationHistory, isAllTime);
-  }, [valuationHistory, isAllTime]);
+    const performanceHistory =
+      selectedIntervalCode === "1D" ? (valuationHistory?.slice(-2) ?? valuationHistory) : valuationHistory;
+    return calculatePerformanceMetrics(performanceHistory, isAllTime);
+  }, [valuationHistory, isAllTime, selectedIntervalCode]);
 
   const currentValuation = useMemo(() => {
     return valuationHistory && valuationHistory.length > 0
@@ -83,15 +86,18 @@ export function DashboardContent() {
   }, [valuationHistory]);
 
   const chartData = useMemo(() => {
+    const chartHistory =
+      selectedIntervalCode === "1D" ? (valuationHistory?.slice(-2) ?? valuationHistory) : valuationHistory;
+
     return (
-      valuationHistory?.map((item) => ({
+      chartHistory?.map((item) => ({
         date: item.valuationDate,
         totalValue: item.totalValue,
         netContribution: item.netContribution,
         currency: item.baseCurrency ?? baseCurrency,
       })) ?? []
     );
-  }, [valuationHistory, baseCurrency]);
+  }, [valuationHistory, selectedIntervalCode, baseCurrency]);
 
   // Callback for IntervalSelector
   const handleIntervalSelect = (
@@ -99,6 +105,7 @@ export function DashboardContent() {
     description: string,
     range: DateRange | undefined,
   ) => {
+    setSelectedIntervalCode(code as UITimePeriod);
     setSelectedIntervalDescription(description);
     setDateRange(range);
     setIsAllTime(code === "ALL");
