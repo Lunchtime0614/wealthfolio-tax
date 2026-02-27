@@ -1,8 +1,8 @@
-import { AnimatedToggleGroup } from "../ui/animated-toggle-group";
+import { startOfYear, subDays, subMonths, subWeeks, subYears } from "date-fns";
+import React, { useCallback, useState } from "react";
 import { usePersistentState } from "../../hooks/use-persistent-state";
 import { cn } from "../../lib/utils";
-import { startOfYear, subMonths, subWeeks, subYears } from "date-fns";
-import React, { useCallback, useState } from "react";
+import { AnimatedToggleGroup } from "../ui/animated-toggle-group";
 
 export type TimePeriod = "1D" | "1W" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL";
 export interface DateRange {
@@ -29,6 +29,11 @@ const intervalDescriptions: Record<TimePeriod, string> = {
 };
 
 const intervals: IntervalData[] = [
+  {
+    code: "1D",
+    description: intervalDescriptions["1D"],
+    calculateRange: () => ({ from: subDays(new Date(), 1), to: new Date() }),
+  },
   {
     code: "1W",
     description: intervalDescriptions["1W"],
@@ -158,4 +163,4 @@ const getInitialIntervalData = (code: TimePeriod = DEFAULT_INTERVAL_CODE) => {
   };
 };
 
-export { IntervalSelector, getInitialIntervalData };
+export { getInitialIntervalData, IntervalSelector };
