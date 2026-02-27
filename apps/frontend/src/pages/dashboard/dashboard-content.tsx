@@ -72,12 +72,53 @@ export function DashboardContent() {
   const { settings } = useSettingsContext();
   const baseCurrency = settings?.baseCurrency ?? "USD";
 
+  const oneDayComparisonHistory = useMemo(() => {
+    if (selectedIntervalCode !== "1D") return valuationHistory;
+    if (!valuationHistory?.length) return valuationHistory;
+
+    const parseNumberPart = (parts: Intl.DateTimeFormatPart[], type: "hour" | "minute") => {
+      const value = parts.find((part) => part.type === type)?.value;
+      return value ? Number.parseInt(value, 10) : 0;
+    };
+
+    const etTimeParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date());
+
+    const etHour = parseNumberPart(etTimeParts, "hour");
+    const etMinute = parseNumberPart(etTimeParts, "minute");
+    const isPreMarket = etHour < 9 || (etHour === 9 && etMinute < 30);
+
+    const dateKeyFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+
+    const todayEtKey = dateKeyFormatter.format(new Date());
+    const latestValuation = valuationHistory[valuationHistory.length - 1];
+    const latestValuationDate = new Date(latestValuation.valuationDate);
+    const latestValuationEtKey = Number.isNaN(latestValuationDate.getTime())
+      ? ""
+      : dateKeyFormatter.format(latestValuationDate);
+
+    const effectiveHistory =
+      isPreMarket && latestValuationEtKey === todayEtKey && valuationHistory.length > 2
+        ? valuationHistory.slice(0, -1)
+        : valuationHistory;
+
+    return effectiveHistory.slice(-2);
+  }, [selectedIntervalCode, valuationHistory]);
+
   // Calculate gainLossAmount and simpleReturn from valuationHistory
   const { gainLossAmount, simpleReturn } = useMemo(() => {
-    const performanceHistory =
-      selectedIntervalCode === "1D" ? (valuationHistory?.slice(-2) ?? valuationHistory) : valuationHistory;
+    const performanceHistory = selectedIntervalCode === "1D" ? oneDayComparisonHistory : valuationHistory;
     return calculatePerformanceMetrics(performanceHistory, isAllTime);
-  }, [valuationHistory, isAllTime, selectedIntervalCode]);
+  }, [valuationHistory, oneDayComparisonHistory, isAllTime, selectedIntervalCode]);
 
   const currentValuation = useMemo(() => {
     return valuationHistory && valuationHistory.length > 0
@@ -86,8 +127,7 @@ export function DashboardContent() {
   }, [valuationHistory]);
 
   const chartData = useMemo(() => {
-    const chartHistory =
-      selectedIntervalCode === "1D" ? (valuationHistory?.slice(-2) ?? valuationHistory) : valuationHistory;
+    const chartHistory = selectedIntervalCode === "1D" ? oneDayComparisonHistory : valuationHistory;
 
     return (
       chartHistory?.map((item) => ({
@@ -97,7 +137,7 @@ export function DashboardContent() {
         currency: item.baseCurrency ?? baseCurrency,
       })) ?? []
     );
-  }, [valuationHistory, selectedIntervalCode, baseCurrency]);
+  }, [valuationHistory, selectedIntervalCode, oneDayComparisonHistory, baseCurrency]);
 
   // Callback for IntervalSelector
   const handleIntervalSelect = (
