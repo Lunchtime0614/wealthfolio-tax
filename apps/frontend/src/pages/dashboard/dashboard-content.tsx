@@ -99,14 +99,34 @@ export function DashboardContent() {
       day: "2-digit",
     });
 
+    const isDateOnly = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+    const parseDateOnlyAsUtc = (value: string) => {
+      const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+      return new Date(Date.UTC(year, (month ?? 1) - 1, day ?? 1, 12, 0, 0));
+    };
+
     const toEtDateKey = (dateInput: string | Date) => {
-      const parsedDate = new Date(dateInput);
+      const parsedDate =
+        typeof dateInput === "string" && isDateOnly(dateInput)
+          ? parseDateOnlyAsUtc(dateInput)
+          : new Date(dateInput);
       if (Number.isNaN(parsedDate.getTime())) return "";
       return dateKeyFormatter.format(parsedDate);
     };
 
     const sortedHistory = [...valuationHistory].sort(
-      (a, b) => new Date(a.valuationDate).getTime() - new Date(b.valuationDate).getTime(),
+      (a, b) => {
+        const dateA =
+          typeof a.valuationDate === "string" && isDateOnly(a.valuationDate)
+            ? parseDateOnlyAsUtc(a.valuationDate)
+            : new Date(a.valuationDate);
+        const dateB =
+          typeof b.valuationDate === "string" && isDateOnly(b.valuationDate)
+            ? parseDateOnlyAsUtc(b.valuationDate)
+            : new Date(b.valuationDate);
+        return dateA.getTime() - dateB.getTime();
+      },
     );
 
     const latestSnapshotByEtDate = new Map<string, (typeof sortedHistory)[number]>();
