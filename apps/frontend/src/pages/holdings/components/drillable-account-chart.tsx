@@ -93,7 +93,7 @@ export function DrillableAccountChart({
 
   const listRows = useMemo(() => {
     if (!accountData.length || totalValue <= 0) {
-      return [] as Array<{ key: string; name: string; value: number; percent: number }>;
+      return [] as { key: string; name: string; value: number; percent: number }[];
     }
 
     if (accountData.length <= 4) {

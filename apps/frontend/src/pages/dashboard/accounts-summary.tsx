@@ -311,7 +311,7 @@ export const AccountsSummary = React.memo(() => {
     error: errorAccounts,
   } = useAccounts();
 
-  const accounts = allAccounts ?? [];
+  const accounts = useMemo(() => allAccounts ?? [], [allAccounts]);
 
   const accountIds = useMemo(() => accounts?.map((acc) => acc.id) ?? [], [accounts]);
 
@@ -641,7 +641,6 @@ export const AccountsSummary = React.memo(() => {
     isLoadingValuations,
     isErrorAccounts,
     errorAccounts,
-    settings?.baseCurrency,
     createGroups,
   ]);
 

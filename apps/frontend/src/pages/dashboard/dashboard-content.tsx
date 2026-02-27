@@ -5,7 +5,6 @@ import {
     HoldingType,
     isAlternativeAssetKind,
     PORTFOLIO_ACCOUNT_ID,
-    type AssetKind,
 } from "@/lib/constants";
 import { useSettingsContext } from "@/lib/settings-provider";
 import { DateRange, TimePeriod } from "@/lib/types";
@@ -52,7 +51,7 @@ export function DashboardContent() {
       // Exclude cash holdings from display
       if (h.holdingType === HoldingType.CASH) return false;
       // Exclude alternative assets from display
-      if (h.assetKind && isAlternativeAssetKind(h.assetKind as AssetKind)) return false;
+      if (h.assetKind && isAlternativeAssetKind(h.assetKind)) return false;
       return true;
     });
   }, [allHoldings]);
@@ -62,7 +61,7 @@ export function DashboardContent() {
     if (!allHoldings) return 0;
     return allHoldings
       .filter((h) => {
-        return !(h.assetKind && isAlternativeAssetKind(h.assetKind as AssetKind));
+        return !(h.assetKind && isAlternativeAssetKind(h.assetKind));
       })
       .reduce((acc, holding) => acc + (holding.marketValue?.base ?? 0), 0);
   }, [allHoldings]);
