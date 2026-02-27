@@ -99,19 +99,34 @@ export function DashboardContent() {
       day: "2-digit",
     });
 
+    const toEtDateKey = (dateInput: string | Date) => {
+      const parsedDate = new Date(dateInput);
+      if (Number.isNaN(parsedDate.getTime())) return "";
+      return dateKeyFormatter.format(parsedDate);
+    };
+
+    const sortedHistory = [...valuationHistory].sort(
+      (a, b) => new Date(a.valuationDate).getTime() - new Date(b.valuationDate).getTime(),
+    );
+
+    const latestSnapshotByEtDate = new Map<string, (typeof sortedHistory)[number]>();
+    for (const valuation of sortedHistory) {
+      const etDateKey = toEtDateKey(valuation.valuationDate);
+      if (!etDateKey) continue;
+      latestSnapshotByEtDate.set(etDateKey, valuation);
+    }
+
     const todayEtKey = dateKeyFormatter.format(new Date());
-    const latestValuation = valuationHistory[valuationHistory.length - 1];
-    const latestValuationDate = new Date(latestValuation.valuationDate);
-    const latestValuationEtKey = Number.isNaN(latestValuationDate.getTime())
-      ? ""
-      : dateKeyFormatter.format(latestValuationDate);
+    if (isPreMarket) {
+      latestSnapshotByEtDate.delete(todayEtKey);
+    }
 
-    const effectiveHistory =
-      isPreMarket && latestValuationEtKey === todayEtKey && valuationHistory.length > 2
-        ? valuationHistory.slice(0, -1)
-        : valuationHistory;
+    const dailySnapshots = Array.from(latestSnapshotByEtDate.values());
+    if (dailySnapshots.length >= 2) {
+      return dailySnapshots.slice(-2);
+    }
 
-    return effectiveHistory.slice(-2);
+    return sortedHistory.slice(-2);
   }, [selectedIntervalCode, valuationHistory]);
 
   // Calculate gainLossAmount and simpleReturn from valuationHistory
