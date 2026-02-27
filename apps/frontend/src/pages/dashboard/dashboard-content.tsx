@@ -129,11 +129,29 @@ export function DashboardContent() {
     return sortedHistory.slice(-2);
   }, [selectedIntervalCode, valuationHistory]);
 
+  const oneDayMetrics = useMemo(() => {
+    if (selectedIntervalCode !== "1D") return null;
+    if (!oneDayComparisonHistory || oneDayComparisonHistory.length < 2) {
+      return { gainLossAmount: 0, simpleReturn: 0 };
+    }
+
+    const previous = oneDayComparisonHistory[0];
+    const latest = oneDayComparisonHistory[oneDayComparisonHistory.length - 1];
+    const gainLossAmount = Number(latest.totalValue) - Number(previous.totalValue);
+    const simpleReturn = Number(previous.totalValue) !== 0 ? gainLossAmount / Number(previous.totalValue) : 0;
+
+    return { gainLossAmount, simpleReturn };
+  }, [selectedIntervalCode, oneDayComparisonHistory]);
+
   // Calculate gainLossAmount and simpleReturn from valuationHistory
   const { gainLossAmount, simpleReturn } = useMemo(() => {
-    const performanceHistory = selectedIntervalCode === "1D" ? oneDayComparisonHistory : valuationHistory;
+    if (selectedIntervalCode === "1D" && oneDayMetrics) {
+      return oneDayMetrics;
+    }
+
+    const performanceHistory = valuationHistory;
     return calculatePerformanceMetrics(performanceHistory, isAllTime);
-  }, [valuationHistory, oneDayComparisonHistory, isAllTime, selectedIntervalCode]);
+  }, [valuationHistory, oneDayMetrics, isAllTime, selectedIntervalCode]);
 
   const currentValuation = useMemo(() => {
     return valuationHistory && valuationHistory.length > 0
