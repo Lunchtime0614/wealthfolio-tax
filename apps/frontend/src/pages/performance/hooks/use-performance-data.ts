@@ -3,7 +3,6 @@ import { QueryKeys } from "@/lib/query-keys";
 import { TrackedItem } from "@/lib/types";
 import { keepPreviousData, useQueries } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { useRef } from "react";
 import { DateRange } from "react-day-picker";
 
 /**
