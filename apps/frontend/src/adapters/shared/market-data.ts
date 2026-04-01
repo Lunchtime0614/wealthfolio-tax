@@ -1,14 +1,15 @@
 // Market Data Commands
 import type {
-    Asset,
-    ExchangeInfo,
-    IndexSparkline,
-    LatestQuoteSnapshot,
-    MarketDataProviderInfo,
-    Quote,
-    ResolvedQuote,
-    SymbolSearchResult,
-    UpdateAssetProfile,
+  Asset,
+  ExchangeInfo,
+  IndexSparkline,
+  LatestQuoteSnapshot,
+  MarketDataProviderInfo,
+  NewAsset,
+  Quote,
+  ResolvedQuote,
+  SymbolSearchResult,
+  UpdateAssetProfile,
 } from "@/lib/types";
 import type { QuoteImport } from "@/lib/types/quote-import";
 import type { MarketDataProviderSetting } from "../types";
@@ -67,6 +68,15 @@ export const updateAssetProfile = async (payload: UpdateAssetProfile): Promise<A
     return await invoke<Asset>("update_asset_profile", { id: payload.id, payload });
   } catch (error) {
     logger.error("Error updating asset profile.");
+    throw error;
+  }
+};
+
+export const createAsset = async (payload: NewAsset): Promise<Asset> => {
+  try {
+    return await invoke<Asset>("create_asset", { payload });
+  } catch (error) {
+    logger.error("Error creating asset.");
     throw error;
   }
 };
@@ -205,6 +215,17 @@ export const getExchanges = async (): Promise<ExchangeInfo[]> => {
     return await invoke<ExchangeInfo[]>("get_exchanges");
   } catch (error) {
     logger.error("Error fetching exchanges.");
+    throw error;
+  }
+};
+
+export const fetchYahooDividends = async (
+  symbol: string,
+): Promise<{ amount: number; date: number }[]> => {
+  try {
+    return await invoke<{ amount: number; date: number }[]>("fetch_yahoo_dividends", { symbol });
+  } catch (error) {
+    logger.error(`Error fetching dividends for ${symbol}.`);
     throw error;
   }
 };

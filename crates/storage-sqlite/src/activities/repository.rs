@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use diesel::expression_methods::ExpressionMethods;
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool};
@@ -23,12 +23,10 @@ use super::model::{ActivityDB, ActivityDetailsDB, ImportMappingDB};
 use crate::db::{get_connection, WriteHandle};
 use crate::errors::StorageError;
 use crate::schema::{accounts, activities, activity_import_profiles, assets};
-use crate::sync::{write_outbox_event, OutboxWriteRequest};
 use crate::utils::chunk_for_sqlite;
 use async_trait::async_trait;
 use diesel::dsl::{max, min};
 use num_traits::Zero;
-use wealthfolio_core::sync::{SyncEntity, SyncOperation};
 
 /// Repository for managing activity data in the database
 pub struct ActivityRepository {
@@ -111,19 +109,20 @@ impl ActivityRepositoryTrait for ActivityRepository {
 
     fn search_activities(
         &self,
-        page: i64,                                 // Page number, 1-based
-        page_size: i64,                            // Number of items per page
-        account_id_filter: Option<Vec<String>>,    // Optional account_id filter
-        activity_type_filter: Option<Vec<String>>, // Optional activity_type filter
-        asset_id_keyword: Option<String>,          // Optional asset_id keyword for search
-        sort: Option<Sort>,                        // Optional sort
+        page: i64,                                   // Page number, 0-based
+        page_size: i64,                              // Number of items per page
+        account_id_filter: Option<Vec<String>>,      // Optional account_id filter
+        activity_type_filter: Option<Vec<String>>,   // Optional activity_type filter
+        asset_id_keyword: Option<String>,            // Optional asset_id keyword for search
+        sort: Option<Sort>,                          // Optional sort
         needs_review_filter: Option<bool>, // Optional needs_review filter (maps to DRAFT status)
         date_from: Option<NaiveDate>,      // Optional start date filter (inclusive)
         date_to: Option<NaiveDate>,        // Optional end date filter (inclusive)
+        instrument_type_filter: Option<Vec<String>>, // Optional instrument_type filter
     ) -> Result<ActivitySearchResponse> {
         let mut conn = get_connection(&self.pool)?;
 
-        let offset = (page - 1) * page_size;
+        let offset = page * page_size;
 
         // Function to create base query - now using LEFT JOIN for assets since asset_id can be NULL
         let create_base_query = |_conn: &SqliteConnection| {
@@ -144,7 +143,9 @@ impl ActivityRepositoryTrait for ActivityRepository {
                 query = query.filter(
                     assets::id
                         .like(pattern.clone())
-                        .or(assets::name.like(pattern)),
+                        .or(assets::name.like(pattern.clone()))
+                        .or(assets::display_code.like(pattern.clone()))
+                        .or(activities::notes.like(pattern)),
                 );
             }
             // Map needs_review_filter to status filter (DRAFT status means needs review)
@@ -165,6 +166,9 @@ impl ActivityRepositoryTrait for ActivityRepository {
                 // End of day in RFC3339 format for lexicographic comparison
                 let to_str = format!("{}T23:59:59", to_date);
                 query = query.filter(activities::activity_date.le(to_str));
+            }
+            if let Some(ref instrument_types) = instrument_type_filter {
+                query = query.filter(assets::instrument_type.eq_any(instrument_types));
             }
 
             // Apply sorting
@@ -258,6 +262,7 @@ impl ActivityRepositoryTrait for ActivityRepository {
                 assets::name.nullable(),
                 assets::instrument_exchange_mic.nullable(),
                 assets::quote_mode.nullable(),
+                assets::instrument_type.nullable(),
                 activities::metadata,
             ))
             .limit(page_size)
@@ -279,23 +284,15 @@ impl ActivityRepositoryTrait for ActivityRepository {
         let activity_db_owned: ActivityDB = new_activity.into();
 
         self.writer
-            .exec(move |conn: &mut SqliteConnection| -> Result<Activity> {
+            .exec_tx(move |tx| -> Result<Activity> {
                 let mut activity_to_insert = activity_db_owned;
                 activity_to_insert.id = Uuid::new_v4().to_string();
                 let inserted_activity = diesel::insert_into(activities::table)
                     .values(&activity_to_insert)
-                    .get_result::<ActivityDB>(conn)
+                    .get_result::<ActivityDB>(tx.conn())
                     .map_err(StorageError::from)?;
                 let activity = Activity::from(inserted_activity);
-                write_outbox_event(
-                    conn,
-                    OutboxWriteRequest::new(
-                        SyncEntity::Activity,
-                        activity.id.clone(),
-                        SyncOperation::Create,
-                        serde_json::to_value(&activity_to_insert)?,
-                    ),
-                )?;
+                tx.insert(&activity_to_insert)?;
                 Ok(activity)
             })
             .await
@@ -308,12 +305,12 @@ impl ActivityRepositoryTrait for ActivityRepository {
         let activity_id_owned = activity_db_owned.id.clone();
 
         self.writer
-            .exec(move |conn: &mut SqliteConnection| -> Result<Activity> {
+            .exec_tx(move |tx| -> Result<Activity> {
                 let mut activity_to_update = activity_db_owned;
                 let existing = activities::table
                     .select(ActivityDB::as_select())
                     .find(&activity_id_owned)
-                    .first::<ActivityDB>(conn)
+                    .first::<ActivityDB>(tx.conn())
                     .map_err(StorageError::from)?;
 
                 // Preserve fields from existing record that shouldn't be overwritten
@@ -384,18 +381,10 @@ impl ActivityRepositoryTrait for ActivityRepository {
                 let updated_activity =
                     diesel::update(activities::table.find(&activity_to_update.id))
                         .set(&activity_to_update)
-                        .get_result::<ActivityDB>(conn)
+                        .get_result::<ActivityDB>(tx.conn())
                         .map_err(StorageError::from)?;
                 let activity = Activity::from(updated_activity);
-                write_outbox_event(
-                    conn,
-                    OutboxWriteRequest::new(
-                        SyncEntity::Activity,
-                        activity.id.clone(),
-                        SyncOperation::Update,
-                        serde_json::to_value(&activity_to_update)?,
-                    ),
-                )?;
+                tx.update(&activity_to_update)?;
                 Ok(activity)
             })
             .await
@@ -403,24 +392,16 @@ impl ActivityRepositoryTrait for ActivityRepository {
 
     async fn delete_activity(&self, activity_id: String) -> Result<Activity> {
         self.writer
-            .exec(move |conn: &mut SqliteConnection| -> Result<Activity> {
+            .exec_tx(move |tx| -> Result<Activity> {
                 let activity = activities::table
                     .select(ActivityDB::as_select())
                     .find(&activity_id)
-                    .first::<ActivityDB>(conn)
+                    .first::<ActivityDB>(tx.conn())
                     .map_err(StorageError::from)?;
                 diesel::delete(activities::table.filter(activities::id.eq(&activity_id)))
-                    .execute(conn)
+                    .execute(tx.conn())
                     .map_err(StorageError::from)?;
-                write_outbox_event(
-                    conn,
-                    OutboxWriteRequest::new(
-                        SyncEntity::Activity,
-                        activity_id.clone(),
-                        SyncOperation::Delete,
-                        serde_json::json!({ "id": activity_id }),
-                    ),
-                )?;
+                tx.delete::<ActivityDB>(activity_id.clone());
                 Ok(activity.into())
             })
             .await
@@ -433,152 +414,125 @@ impl ActivityRepositoryTrait for ActivityRepository {
         delete_ids: Vec<String>,
     ) -> Result<ActivityBulkMutationResult> {
         self.writer
-            .exec(
-                move |conn: &mut SqliteConnection| -> Result<ActivityBulkMutationResult> {
-                    let mut outcome = ActivityBulkMutationResult::default();
+            .exec_tx(move |tx| -> Result<ActivityBulkMutationResult> {
+                let mut outcome = ActivityBulkMutationResult::default();
 
-                    for delete_id in delete_ids {
-                        let activity_db = activities::table
-                            .select(ActivityDB::as_select())
-                            .find(&delete_id)
-                            .first::<ActivityDB>(conn)
-                            .map_err(StorageError::from)?;
-                        diesel::delete(activities::table.filter(activities::id.eq(&delete_id)))
-                            .execute(conn)
-                            .map_err(StorageError::from)?;
-                        write_outbox_event(
-                            conn,
-                            OutboxWriteRequest::new(
-                                SyncEntity::Activity,
-                                delete_id.clone(),
-                                SyncOperation::Delete,
-                                serde_json::json!({ "id": delete_id }),
-                            ),
-                        )?;
-                        outcome.deleted.push(Activity::from(activity_db));
+                for delete_id in delete_ids {
+                    let activity_db = activities::table
+                        .select(ActivityDB::as_select())
+                        .find(&delete_id)
+                        .first::<ActivityDB>(tx.conn())
+                        .map_err(StorageError::from)?;
+                    diesel::delete(activities::table.filter(activities::id.eq(&delete_id)))
+                        .execute(tx.conn())
+                        .map_err(StorageError::from)?;
+                    tx.delete::<ActivityDB>(delete_id.clone());
+                    outcome.deleted.push(Activity::from(activity_db));
+                }
+
+                for update in updates {
+                    update.validate()?;
+                    let update_owned = update.clone();
+                    let mut activity_db: ActivityDB = update.into();
+                    let existing = activities::table
+                        .select(ActivityDB::as_select())
+                        .find(&activity_db.id)
+                        .first::<ActivityDB>(tx.conn())
+                        .map_err(StorageError::from)?;
+
+                    // Preserve fields from existing record
+                    let ActivityDB {
+                        created_at,
+                        source_system,
+                        source_record_id,
+                        source_group_id,
+                        idempotency_key,
+                        import_run_id,
+                        activity_type_override,
+                        source_type,
+                        subtype,
+                        settlement_date,
+                        metadata,
+                        quantity,
+                        unit_price,
+                        amount,
+                        fee,
+                        fx_rate,
+                        ..
+                    } = existing;
+
+                    activity_db.created_at = created_at;
+                    activity_db.quantity = apply_decimal_patch(quantity, update_owned.quantity);
+                    activity_db.unit_price =
+                        apply_decimal_patch(unit_price, update_owned.unit_price);
+                    activity_db.amount = apply_decimal_patch(amount, update_owned.amount);
+                    activity_db.fee = apply_decimal_patch(fee, update_owned.fee);
+                    activity_db.fx_rate = apply_decimal_patch(fx_rate, update_owned.fx_rate);
+                    if activity_db.source_system.is_none() {
+                        activity_db.source_system = source_system;
                     }
-
-                    for update in updates {
-                        update.validate()?;
-                        let update_owned = update.clone();
-                        let mut activity_db: ActivityDB = update.into();
-                        let existing = activities::table
-                            .select(ActivityDB::as_select())
-                            .find(&activity_db.id)
-                            .first::<ActivityDB>(conn)
-                            .map_err(StorageError::from)?;
-
-                        // Preserve fields from existing record
-                        let ActivityDB {
-                            created_at,
-                            source_system,
-                            source_record_id,
-                            source_group_id,
-                            idempotency_key,
-                            import_run_id,
-                            activity_type_override,
-                            source_type,
-                            subtype,
-                            settlement_date,
-                            metadata,
-                            quantity,
-                            unit_price,
-                            amount,
-                            fee,
-                            fx_rate,
-                            ..
-                        } = existing;
-
-                        activity_db.created_at = created_at;
-                        activity_db.quantity = apply_decimal_patch(quantity, update_owned.quantity);
-                        activity_db.unit_price =
-                            apply_decimal_patch(unit_price, update_owned.unit_price);
-                        activity_db.amount = apply_decimal_patch(amount, update_owned.amount);
-                        activity_db.fee = apply_decimal_patch(fee, update_owned.fee);
-                        activity_db.fx_rate = apply_decimal_patch(fx_rate, update_owned.fx_rate);
-                        if activity_db.source_system.is_none() {
-                            activity_db.source_system = source_system;
-                        }
-                        if activity_db.source_record_id.is_none() {
-                            activity_db.source_record_id = source_record_id;
-                        }
-                        if activity_db.source_group_id.is_none() {
-                            activity_db.source_group_id = source_group_id;
-                        }
-                        if activity_db.idempotency_key.is_none() {
-                            activity_db.idempotency_key = idempotency_key;
-                        }
-                        if activity_db.import_run_id.is_none() {
-                            activity_db.import_run_id = import_run_id;
-                        }
-                        if activity_db.activity_type_override.is_none() {
-                            activity_db.activity_type_override = activity_type_override;
-                        }
-                        if activity_db.source_type.is_none() {
-                            activity_db.source_type = source_type;
-                        }
-                        if activity_db.subtype.is_none() {
-                            activity_db.subtype = subtype;
-                        }
-                        if activity_db.settlement_date.is_none() {
-                            activity_db.settlement_date = settlement_date;
-                        }
-                        if activity_db.metadata.is_none() {
-                            activity_db.metadata = metadata;
-                        }
-                        activity_db.updated_at = chrono::Utc::now().to_rfc3339();
-
-                        let updated_activity =
-                            diesel::update(activities::table.find(&activity_db.id))
-                                .set(&activity_db)
-                                .get_result::<ActivityDB>(conn)
-                                .map_err(StorageError::from)?;
-                        write_outbox_event(
-                            conn,
-                            OutboxWriteRequest::new(
-                                SyncEntity::Activity,
-                                activity_db.id.clone(),
-                                SyncOperation::Update,
-                                serde_json::to_value(&activity_db)?,
-                            ),
-                        )?;
-                        outcome.updated.push(Activity::from(updated_activity));
+                    if activity_db.source_record_id.is_none() {
+                        activity_db.source_record_id = source_record_id;
                     }
-
-                    for new_activity in creates {
-                        new_activity.validate()?;
-                        let temp_id = new_activity.id.clone();
-                        let mut activity_db: ActivityDB = new_activity.into();
-                        // Always generate a new UUID for created activities
-                        let generated_id = Uuid::new_v4().to_string();
-                        activity_db.id = generated_id.clone();
-                        let inserted_activity = diesel::insert_into(activities::table)
-                            .values(&activity_db)
-                            .get_result::<ActivityDB>(conn)
-                            .map_err(StorageError::from)?;
-                        write_outbox_event(
-                            conn,
-                            OutboxWriteRequest::new(
-                                SyncEntity::Activity,
-                                generated_id.clone(),
-                                SyncOperation::Create,
-                                serde_json::to_value(&inserted_activity)?,
-                            ),
-                        )?;
-                        outcome
-                            .created
-                            .push(Activity::from(inserted_activity.clone()));
-                        outcome
-                            .created_mappings
-                            .push(ActivityBulkIdentifierMapping {
-                                temp_id: temp_id.filter(|id| !id.is_empty()),
-                                activity_id: generated_id,
-                            });
+                    if activity_db.source_group_id.is_none() {
+                        activity_db.source_group_id = source_group_id;
                     }
+                    if activity_db.idempotency_key.is_none() {
+                        activity_db.idempotency_key = idempotency_key;
+                    }
+                    if activity_db.import_run_id.is_none() {
+                        activity_db.import_run_id = import_run_id;
+                    }
+                    if activity_db.activity_type_override.is_none() {
+                        activity_db.activity_type_override = activity_type_override;
+                    }
+                    if activity_db.source_type.is_none() {
+                        activity_db.source_type = source_type;
+                    }
+                    if activity_db.subtype.is_none() {
+                        activity_db.subtype = subtype;
+                    }
+                    if activity_db.settlement_date.is_none() {
+                        activity_db.settlement_date = settlement_date;
+                    }
+                    if activity_db.metadata.is_none() {
+                        activity_db.metadata = metadata;
+                    }
+                    activity_db.updated_at = chrono::Utc::now().to_rfc3339();
 
-                    Ok(outcome)
-                },
-            )
+                    let updated_activity = diesel::update(activities::table.find(&activity_db.id))
+                        .set(&activity_db)
+                        .get_result::<ActivityDB>(tx.conn())
+                        .map_err(StorageError::from)?;
+                    tx.update(&activity_db)?;
+                    outcome.updated.push(Activity::from(updated_activity));
+                }
+
+                for new_activity in creates {
+                    new_activity.validate()?;
+                    let temp_id = new_activity.id.clone();
+                    let mut activity_db: ActivityDB = new_activity.into();
+                    // Always generate a new UUID for created activities
+                    let generated_id = Uuid::new_v4().to_string();
+                    activity_db.id = generated_id.clone();
+                    let inserted_activity = diesel::insert_into(activities::table)
+                        .values(&activity_db)
+                        .get_result::<ActivityDB>(tx.conn())
+                        .map_err(StorageError::from)?;
+                    tx.insert(&inserted_activity)?;
+                    outcome
+                        .created
+                        .push(Activity::from(inserted_activity.clone()));
+                    outcome
+                        .created_mappings
+                        .push(ActivityBulkIdentifierMapping {
+                            temp_id: temp_id.filter(|id| !id.is_empty()),
+                            activity_id: generated_id,
+                        });
+                }
+
+                Ok(outcome)
+            })
             .await
     }
 
@@ -673,23 +627,15 @@ impl ActivityRepositoryTrait for ActivityRepository {
     async fn save_import_mapping(&self, mapping: &ImportMapping) -> Result<()> {
         let mapping_db: ImportMappingDB = mapping.clone().into();
         self.writer
-            .exec(move |conn: &mut SqliteConnection| -> Result<()> {
+            .exec_tx(move |tx| -> Result<()> {
                 diesel::insert_into(activity_import_profiles::table)
                     .values(&mapping_db)
                     .on_conflict(activity_import_profiles::account_id)
                     .do_update()
                     .set(&mapping_db)
-                    .execute(conn)
+                    .execute(tx.conn())
                     .map_err(StorageError::from)?;
-                write_outbox_event(
-                    conn,
-                    OutboxWriteRequest::new(
-                        SyncEntity::ActivityImportProfile,
-                        mapping_db.account_id.clone(),
-                        SyncOperation::Update,
-                        serde_json::to_value(&mapping_db)?,
-                    ),
-                )?;
+                tx.update(&mapping_db)?;
                 Ok(())
             })
             .await
@@ -714,21 +660,13 @@ impl ActivityRepositoryTrait for ActivityRepository {
             .collect();
 
         self.writer
-            .exec(move |conn: &mut SqliteConnection| -> Result<usize> {
+            .exec_tx(move |tx| -> Result<usize> {
                 let num_inserted = diesel::insert_into(activities::table)
                     .values(&activities_db_owned)
-                    .execute(conn)
+                    .execute(tx.conn())
                     .map_err(StorageError::from)?;
                 for activity_db in &activities_db_owned {
-                    write_outbox_event(
-                        conn,
-                        OutboxWriteRequest::new(
-                            SyncEntity::Activity,
-                            activity_db.id.clone(),
-                            SyncOperation::Create,
-                            serde_json::to_value(activity_db)?,
-                        ),
-                    )?;
+                    tx.insert(activity_db)?;
                 }
                 Ok(num_inserted)
             })
@@ -740,8 +678,8 @@ impl ActivityRepositoryTrait for ActivityRepository {
     fn get_contribution_activities(
         &self,
         account_ids: &[String],
-        start_date: NaiveDateTime,
-        end_date: NaiveDateTime,
+        start_utc: chrono::DateTime<Utc>,
+        end_exclusive_utc: chrono::DateTime<Utc>,
     ) -> Result<Vec<ContributionActivity>> {
         let mut conn = get_connection(&self.pool)?;
 
@@ -752,10 +690,8 @@ impl ActivityRepositoryTrait for ActivityRepository {
             .filter(accounts::id.eq_any(account_ids))
             .filter(accounts::is_archived.eq(false))
             .filter(activities::activity_type.eq_any(CONTRIBUTION_TYPES))
-            .filter(activities::activity_date.between(
-                Utc.from_utc_datetime(&start_date).to_rfc3339(),
-                Utc.from_utc_datetime(&end_date).to_rfc3339(),
-            ))
+            .filter(activities::activity_date.ge(start_utc.to_rfc3339()))
+            .filter(activities::activity_date.lt(end_exclusive_utc.to_rfc3339()))
             .select((
                 activities::account_id,
                 activities::activity_type,
@@ -789,10 +725,16 @@ impl ActivityRepositoryTrait for ActivityRepository {
                     metadata,
                     source_group_id,
                 )| {
-                    // Parse date - try RFC3339 first, then date-only format
-                    let activity_date = chrono::DateTime::parse_from_rfc3339(&activity_date_str)
-                        .map(|dt| dt.naive_utc().date())
-                        .or_else(|_| NaiveDate::parse_from_str(&activity_date_str, "%Y-%m-%d"))
+                    // Parse activity instant as UTC; fallback date-only values to UTC midnight.
+                    let activity_instant = chrono::DateTime::parse_from_rfc3339(&activity_date_str)
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .or_else(|_| {
+                            NaiveDate::parse_from_str(&activity_date_str, "%Y-%m-%d").map(|date| {
+                                date.and_hms_opt(0, 0, 0)
+                                    .expect("midnight is always valid")
+                                    .and_utc()
+                            })
+                        })
                         .ok()?;
 
                     let amount = amount_str.and_then(|s| Decimal::from_str(&s).ok());
@@ -800,7 +742,7 @@ impl ActivityRepositoryTrait for ActivityRepository {
                     Some(ContributionActivity {
                         account_id,
                         activity_type,
-                        activity_date,
+                        activity_instant,
                         amount,
                         currency,
                         metadata,
@@ -1044,7 +986,7 @@ impl ActivityRepositoryTrait for ActivityRepository {
             activities_vec.into_iter().map(ActivityDB::from).collect();
 
         self.writer
-            .exec(move |conn: &mut SqliteConnection| -> Result<BulkUpsertResult> {
+            .exec_tx(move |tx| -> Result<BulkUpsertResult> {
                 // Collect all activity IDs and idempotency keys for batch lookup
                 let activity_ids: Vec<String> =
                     activity_rows.iter().map(|a| a.id.clone()).collect();
@@ -1066,7 +1008,7 @@ impl ActivityRepositoryTrait for ActivityRepository {
                         activities::idempotency_key,
                         activities::is_user_modified,
                     ))
-                    .load::<(String, Option<String>, i32)>(conn)
+                    .load::<(String, Option<String>, i32)>(tx.conn())
                     .map_err(StorageError::from)?;
 
                 // Build lookup maps for quick access
@@ -1159,24 +1101,15 @@ impl ActivityRepositoryTrait for ActivityRepository {
                             activities::import_run_id.eq(excluded(activities::import_run_id)),
                             activities::updated_at.eq(now_update),
                         ))
-                        .execute(conn)
+                        .execute(tx.conn())
                     {
                         Ok(count) => {
                             if count > 0 {
-                                let operation = if will_update {
-                                    SyncOperation::Update
+                                if will_update {
+                                    tx.update(&activity_db)?;
                                 } else {
-                                    SyncOperation::Create
-                                };
-                                write_outbox_event(
-                                    conn,
-                                    OutboxWriteRequest::new(
-                                        SyncEntity::Activity,
-                                        activity_db.id.clone(),
-                                        operation,
-                                        serde_json::to_value(&activity_db)?,
-                                    ),
-                                )?;
+                                    tx.insert(&activity_db)?;
+                                }
                                 result.upserted += count;
                                 if will_update {
                                     result.updated += count;
@@ -1221,11 +1154,11 @@ impl ActivityRepositoryTrait for ActivityRepository {
         let old_id = old_asset_id.to_string();
         let new_id = new_asset_id.to_string();
         self.writer
-            .exec(move |conn: &mut SqliteConnection| -> Result<u32> {
+            .exec_tx(move |tx| -> Result<u32> {
                 let affected_ids = activities::table
                     .filter(activities::asset_id.eq(&old_id))
                     .select(activities::id)
-                    .load::<String>(conn)
+                    .load::<String>(tx.conn())
                     .map_err(StorageError::from)?;
                 if affected_ids.is_empty() {
                     return Ok(0);
@@ -1238,24 +1171,16 @@ impl ActivityRepositoryTrait for ActivityRepository {
                             activities::asset_id.eq(&new_id),
                             activities::updated_at.eq(&now),
                         ))
-                        .execute(conn)
+                        .execute(tx.conn())
                         .map_err(StorageError::from)?;
 
                 let updated_rows = activities::table
                     .filter(activities::id.eq_any(&affected_ids))
                     .select(ActivityDB::as_select())
-                    .load::<ActivityDB>(conn)
+                    .load::<ActivityDB>(tx.conn())
                     .map_err(StorageError::from)?;
                 for updated_row in updated_rows {
-                    write_outbox_event(
-                        conn,
-                        OutboxWriteRequest::new(
-                            SyncEntity::Activity,
-                            updated_row.id.clone(),
-                            SyncOperation::Update,
-                            serde_json::to_value(&updated_row)?,
-                        ),
-                    )?;
+                    tx.update(&updated_row)?;
                 }
                 Ok(count as u32)
             })

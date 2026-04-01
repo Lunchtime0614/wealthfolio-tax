@@ -26,9 +26,10 @@ use yahoo_finance_api as yahoo;
 use crate::errors::MarketDataError;
 use crate::models::{
     AssetProfile, Coverage, InstrumentKind, ProviderInstrument, Quote, QuoteContext, SearchResult,
+    SplitEvent,
 };
 use crate::provider::{MarketDataProvider, ProviderCapabilities, RateLimit};
-use crate::resolver::ResolverChain;
+use crate::resolver::{yahoo_exchange_to_mic, ResolverChain};
 
 use models::{YahooQuoteSummaryResponse, YahooQuoteSummaryResult};
 
@@ -81,6 +82,13 @@ pub struct YahooProvider {
     connector: yahoo::YahooConnector,
 }
 
+/// A single dividend event returned by Yahoo Finance.
+#[derive(Debug, serde::Serialize)]
+pub struct YahooDividend {
+    pub amount: f64,
+    pub date: i64, // unix seconds
+}
+
 impl YahooProvider {
     /// Create a new Yahoo Finance provider.
     pub async fn new() -> Result<Self, MarketDataError> {
@@ -107,12 +115,20 @@ impl YahooProvider {
             }
             ProviderInstrument::FxPair { from, to } => Ok(format!("{}{}=X", from, to)),
             ProviderInstrument::MetalSymbol { symbol, .. } => Ok(symbol.to_string()),
+            ProviderInstrument::BondIsin { isin } => Ok(isin.to_string()),
         }
     }
 
     /// Convert a Yahoo error to a MarketDataError, detecting rate limits.
     fn convert_yahoo_error(&self, e: yahoo::YahooError, symbol: &str) -> MarketDataError {
         let error_msg = e.to_string();
+
+        // Detect no-data boundary from Yahoo API error message
+        if error_msg.contains("Data doesn't exist for startDate")
+            || error_msg.contains("No data found, symbol may be delisted")
+        {
+            return MarketDataError::NoDataForRange;
+        }
 
         // Detect rate limiting from error message
         if error_msg.contains("Too many requests")
@@ -214,18 +230,155 @@ impl YahooProvider {
     }
 
     // ========================================================================
+    // Dividend Fetching
+    // ========================================================================
+
+    /// Fetch dividend events for a symbol over the past two years.
+    pub async fn fetch_dividends(
+        &self,
+        symbol: &str,
+    ) -> Result<Vec<YahooDividend>, MarketDataError> {
+        use std::collections::HashMap;
+
+        let crumb_data = self.ensure_crumb().await?;
+
+        let now = chrono::Utc::now().timestamp();
+        let two_years_ago = now - 2 * 365 * 24 * 60 * 60;
+        let encoded = urlencoding::encode(symbol);
+        let url = format!(
+            "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1d&period1={}&period2={}&events=div&crumb={}",
+            encoded,
+            two_years_ago,
+            now,
+            urlencoding::encode(&crumb_data.crumb)
+        );
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(&url)
+            .header(header::ACCEPT, "application/json")
+            .header(
+                header::USER_AGENT,
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            )
+            .header(header::COOKIE, &crumb_data.cookie)
+            .send()
+            .await
+            .map_err(|e| MarketDataError::ProviderError {
+                provider: "YAHOO".to_string(),
+                message: format!("Failed to fetch dividends: {}", e),
+            })?;
+
+        let status = resp.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            self.clear_crumb();
+        }
+        if !status.is_success() {
+            return Err(MarketDataError::ProviderError {
+                provider: "YAHOO".to_string(),
+                message: format!("Yahoo returned {}", status),
+            });
+        }
+
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| MarketDataError::ProviderError {
+                provider: "YAHOO".to_string(),
+                message: format!("Failed to read dividends response: {}", e),
+            })?;
+
+        #[derive(serde::Deserialize)]
+        struct DivItem {
+            amount: f64,
+            date: i64,
+        }
+        #[derive(serde::Deserialize)]
+        struct Events {
+            dividends: Option<HashMap<String, DivItem>>,
+        }
+        #[derive(serde::Deserialize)]
+        struct ChartResult {
+            events: Option<Events>,
+        }
+        #[derive(serde::Deserialize)]
+        struct ChartError {
+            code: String,
+            description: Option<String>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Chart {
+            result: Option<Vec<ChartResult>>,
+            error: Option<ChartError>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Root {
+            chart: Option<Chart>,
+        }
+
+        let parsed: Root =
+            serde_json::from_str(&text).map_err(|e| MarketDataError::ProviderError {
+                provider: "YAHOO".to_string(),
+                message: format!("Failed to parse dividends: {}", e),
+            })?;
+
+        // Detect Yahoo application-level errors (HTTP 200 with result: null + error object).
+        // Without this check, the .and_then chain below silently returns Ok([]) for
+        // invalid/delisted symbols and auth failures, masking real errors from callers.
+        if let Some(chart_error) = parsed.chart.as_ref().and_then(|c| c.error.as_ref()) {
+            let code = chart_error.code.to_ascii_lowercase();
+            let description = chart_error.description.as_deref().unwrap_or("");
+
+            // "Bad Request" + date-range description → no data in range
+            if description.contains("Data doesn't exist for startDate") {
+                return Err(MarketDataError::NoDataForRange);
+            }
+
+            // "Not Found" → symbol doesn't exist or is delisted
+            if code.contains("not found") || code.contains("no data") {
+                return Err(MarketDataError::SymbolNotFound(symbol.to_string()));
+            }
+
+            let display_description = if description.is_empty() {
+                &chart_error.code
+            } else {
+                description
+            };
+            return Err(MarketDataError::ProviderError {
+                provider: "YAHOO".to_string(),
+                message: format!("chart error {}: {}", chart_error.code, display_description),
+            });
+        }
+
+        let divs = parsed
+            .chart
+            .and_then(|c| c.result)
+            .and_then(|r| r.into_iter().next())
+            .and_then(|r| r.events)
+            .and_then(|e| e.dividends)
+            .unwrap_or_default();
+
+        let mut result: Vec<YahooDividend> = divs
+            .into_values()
+            .map(|d| YahooDividend {
+                amount: d.amount,
+                date: d.date,
+            })
+            .collect();
+        result.sort_by_key(|d| d.date);
+        Ok(result)
+    }
+
+    // ========================================================================
     // Quote Fetching
     // ========================================================================
 
-    /// Get the currency: prefer asset's quote_ccy, fall back to exchange metadata.
+    /// Get the currency: prefer exchange metadata, fall back to asset's quote_ccy.
     fn get_currency(&self, context: &QuoteContext) -> String {
-        context
-            .currency_hint
-            .clone()
-            .or_else(|| {
-                let chain = ResolverChain::new();
-                chain.get_currency(&"YAHOO".into(), context)
-            })
+        let chain = ResolverChain::new();
+        chain
+            .get_currency(&"YAHOO".into(), context)
+            .or_else(|| context.currency_hint.clone())
             .map(|c| c.to_string())
             .unwrap_or_else(|| "USD".to_string())
     }
@@ -287,7 +440,12 @@ impl YahooProvider {
         let exchange = item.exchange.unwrap_or_default();
         let quote_type = item.quote_type.unwrap_or_else(|| "UNKNOWN".to_string());
 
-        let mut result = SearchResult::new(symbol.to_string(), name, exchange, quote_type);
+        let mut result = SearchResult::new(symbol.to_string(), name, &exchange, quote_type);
+
+        // Derive MIC from Yahoo exchange code (e.g., NMS→XNAS, TOR→XTSE)
+        if let Some(mic) = yahoo_exchange_to_mic(&exchange) {
+            result = result.with_exchange_mic(mic.into_owned());
+        }
 
         if let Some(score) = item.score {
             result = result.with_score(score);
@@ -702,6 +860,8 @@ impl MarketDataProvider for YahooProvider {
                 InstrumentKind::Equity,
                 InstrumentKind::Crypto,
                 InstrumentKind::Fx,
+                InstrumentKind::Option,
+                InstrumentKind::Metal,
             ],
             coverage: Coverage::global_best_effort(),
             supports_latest: true,
@@ -812,6 +972,55 @@ impl MarketDataProvider for YahooProvider {
         }
     }
 
+    async fn get_splits(
+        &self,
+        _context: &QuoteContext,
+        instrument: ProviderInstrument,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<SplitEvent>, MarketDataError> {
+        let symbol = self.extract_symbol(&instrument)?;
+
+        if symbol.starts_with("CASH:") {
+            return Ok(vec![]);
+        }
+
+        let start_time = Self::chrono_to_offset_datetime(start);
+        let end_time = Self::chrono_to_offset_datetime(end);
+
+        // Use 3mo interval to minimize OHLCV data in the response (~200 bars max)
+        // while still returning all split events within the requested date range.
+        let response = self
+            .connector
+            .get_quote_history_interval(&symbol, start_time, end_time, "3mo")
+            .await
+            .map_err(|e| self.convert_yahoo_error(e, &symbol))?;
+
+        let splits = match response.splits() {
+            Ok(splits) => splits,
+            Err(yahoo::YahooError::NoQuotes) => return Ok(vec![]),
+            Err(e) => return Err(self.convert_yahoo_error(e, &symbol)),
+        };
+
+        let events = splits
+            .into_iter()
+            .filter_map(|s| {
+                let date = chrono::DateTime::from_timestamp(s.date, 0)?.date_naive();
+                if s.denominator == 0.0 {
+                    warn!(
+                        "Skipping split for {} on {} — zero denominator",
+                        symbol, date
+                    );
+                    return None;
+                }
+                let ratio = Decimal::from_f64(s.numerator / s.denominator)?;
+                Some(SplitEvent { date, ratio })
+            })
+            .collect();
+
+        Ok(events)
+    }
+
     async fn search(&self, query: &str) -> Result<Vec<SearchResult>, MarketDataError> {
         let encoded_query = encode(query);
 
@@ -843,13 +1052,17 @@ impl MarketDataProvider for YahooProvider {
             .quotes
             .iter()
             .map(|item| {
-                SearchResult::new(
+                let mut r = SearchResult::new(
                     &item.symbol,
                     &item.long_name,
                     &item.exchange,
                     &item.quote_type,
                 )
-                .with_score(item.score)
+                .with_score(item.score);
+                if let Some(mic) = yahoo_exchange_to_mic(&item.exchange) {
+                    r = r.with_exchange_mic(mic.into_owned());
+                }
+                r
             })
             .collect();
 
@@ -1055,6 +1268,7 @@ mod tests {
             overrides: None,
             currency_hint: Some(Cow::Borrowed("USD")),
             preferred_provider: None,
+            bond_metadata: None,
         }
     }
 
@@ -1072,6 +1286,7 @@ mod tests {
             overrides: None,
             currency_hint: currency_hint.map(Cow::Borrowed),
             preferred_provider: None,
+            bond_metadata: None,
         }
     }
 
@@ -1131,21 +1346,44 @@ mod tests {
     }
 
     #[test]
-    fn test_get_currency_prefers_hint_over_resolver() {
+    fn test_get_currency_prefers_resolver_over_hint() {
         let provider = YahooProvider {
             connector: yahoo::YahooConnector::new().expect("Failed to initialize Yahoo connector"),
         };
+        // FX resolver returns the quote currency ("CAD"), which takes priority over hint
         let context = create_test_fx_context(Some("TWD"), "CAD");
-        assert_eq!(provider.get_currency(&context), "TWD");
+        assert_eq!(provider.get_currency(&context), "CAD");
     }
 
     #[test]
-    fn test_get_currency_falls_back_to_resolver_when_hint_missing() {
+    fn test_get_currency_falls_back_to_hint_when_resolver_empty() {
         let provider = YahooProvider {
             connector: yahoo::YahooConnector::new().expect("Failed to initialize Yahoo connector"),
         };
-        let context = create_test_fx_context(None, "CAD");
-        assert_eq!(provider.get_currency(&context), "CAD");
+        // No MIC → resolver returns None for equities, so hint wins
+        let context = create_test_context();
+        assert_eq!(provider.get_currency(&context), "USD");
+    }
+
+    #[test]
+    fn test_get_currency_xlon_prefers_exchange_metadata() {
+        use crate::models::InstrumentId;
+        // BATS@XLON: asset has quote_ccy="GBP" but Yahoo prices are in pence.
+        // get_currency() must return "GBp" from exchange metadata, not "GBP" from hint.
+        let provider = YahooProvider {
+            connector: yahoo::YahooConnector::new().expect("Failed to initialize Yahoo connector"),
+        };
+        let context = QuoteContext {
+            instrument: InstrumentId::Equity {
+                ticker: Arc::from("BATS"),
+                mic: Some("XLON".into()),
+            },
+            currency_hint: Some(Cow::Borrowed("GBP")),
+            overrides: None,
+            preferred_provider: None,
+            bond_metadata: None,
+        };
+        assert_eq!(provider.get_currency(&context), "GBp");
     }
 
     #[test]
@@ -1155,6 +1393,8 @@ mod tests {
                 InstrumentKind::Equity,
                 InstrumentKind::Crypto,
                 InstrumentKind::Fx,
+                InstrumentKind::Option,
+                InstrumentKind::Metal,
             ],
             coverage: Coverage::global_best_effort(),
             supports_latest: true,
@@ -1170,6 +1410,12 @@ mod tests {
             .instrument_kinds
             .contains(&InstrumentKind::Crypto));
         assert!(capabilities.instrument_kinds.contains(&InstrumentKind::Fx));
+        assert!(capabilities
+            .instrument_kinds
+            .contains(&InstrumentKind::Option));
+        assert!(capabilities
+            .instrument_kinds
+            .contains(&InstrumentKind::Metal));
         assert!(capabilities.supports_latest);
         assert!(capabilities.supports_historical);
         assert!(capabilities.supports_search);
@@ -1227,5 +1473,119 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "BARC.L");
         assert_eq!(results[0].currency, None);
+    }
+
+    #[test]
+    fn test_no_data_range_error_message_detection() {
+        let provider = YahooProvider {
+            connector: yahoo::YahooConnector::new().expect("Failed to initialize Yahoo connector"),
+        };
+        let err = yahoo::YahooError::FetchFailed(
+            "yahoo! finance returned api error: YErrorMessage { code: Some(\"Bad Request\") description: Some(\"Data doesn't exist for startDate = 1747094400 endDate = 1750118399\") }"
+                .to_string(),
+        );
+
+        let mapped = provider.convert_yahoo_error(err, "TEST");
+        assert!(matches!(mapped, MarketDataError::NoDataForRange));
+    }
+
+    /// Parsing tests for the inline chart-error detection added to `fetch_dividends`.
+    /// These replicate the JSON shapes Yahoo returns on HTTP 200 with application-level errors.
+    mod fetch_dividends_error_detection {
+        use super::*;
+
+        // Mirrors the inline structs in fetch_dividends so we can drive them in tests.
+        #[allow(dead_code)]
+        #[derive(serde::Deserialize)]
+        struct DivItem {
+            amount: f64,
+            date: i64,
+        }
+        #[allow(dead_code)]
+        #[derive(serde::Deserialize)]
+        struct Events {
+            dividends: Option<std::collections::HashMap<String, DivItem>>,
+        }
+        #[allow(dead_code)]
+        #[derive(serde::Deserialize)]
+        struct ChartResult {
+            events: Option<Events>,
+        }
+        #[derive(serde::Deserialize)]
+        struct ChartError {
+            code: String,
+            description: Option<String>,
+        }
+        #[allow(dead_code)]
+        #[derive(serde::Deserialize)]
+        struct Chart {
+            result: Option<Vec<ChartResult>>,
+            error: Option<ChartError>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Root {
+            chart: Option<Chart>,
+        }
+
+        fn classify(text: &str) -> Result<(), MarketDataError> {
+            let parsed: Root = serde_json::from_str(text).unwrap();
+            if let Some(e) = parsed.chart.as_ref().and_then(|c| c.error.as_ref()) {
+                let code = e.code.to_ascii_lowercase();
+                let description = e.description.as_deref().unwrap_or("");
+                if description.contains("Data doesn't exist for startDate") {
+                    return Err(MarketDataError::NoDataForRange);
+                }
+                if code.contains("not found") || code.contains("no data") {
+                    return Err(MarketDataError::SymbolNotFound("SYM".to_string()));
+                }
+                let display = if description.is_empty() {
+                    &e.code
+                } else {
+                    description
+                };
+                return Err(MarketDataError::ProviderError {
+                    provider: "YAHOO".to_string(),
+                    message: format!("chart error {}: {}", e.code, display),
+                });
+            }
+            Ok(())
+        }
+
+        #[test]
+        fn not_found_error_maps_to_symbol_not_found() {
+            // Real Yahoo v8/finance/chart response for an invalid/delisted symbol
+            let json = r#"{"chart":{"result":null,"error":{"code":"Not Found","description":"No data found, symbol may be delisted"}}}"#;
+            assert!(matches!(
+                classify(json),
+                Err(MarketDataError::SymbolNotFound(_))
+            ));
+        }
+
+        #[test]
+        fn bad_request_date_range_maps_to_no_data_for_range() {
+            // Real Yahoo v8/finance/chart response when the requested date range has no data
+            let json = r#"{"chart":{"result":null,"error":{"code":"Bad Request","description":"Data doesn't exist for startDate = 1577836800, endDate = 1578009600"}}}"#;
+            assert!(matches!(
+                classify(json),
+                Err(MarketDataError::NoDataForRange)
+            ));
+        }
+
+        #[test]
+        fn generic_chart_error_maps_to_provider_error() {
+            let json = r#"{"chart":{"result":null,"error":{"code":"Unauthorized","description":"Invalid crumb"}}}"#;
+            match classify(json) {
+                Err(MarketDataError::ProviderError { message, .. }) => {
+                    assert!(message.contains("Unauthorized"));
+                }
+                other => panic!("unexpected: {:?}", other),
+            }
+        }
+
+        #[test]
+        fn valid_result_with_no_dividends_returns_ok() {
+            let json = r#"{"chart":{"result":[{"events":null}],"error":null}}"#;
+            assert!(classify(json).is_ok());
+        }
     }
 }

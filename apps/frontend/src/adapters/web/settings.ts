@@ -100,8 +100,12 @@ interface WebUpdateCheckResponse {
  * Check for updates. Returns update info if available, null if up-to-date.
  * Web implementation uses REST API.
  */
-export const checkForUpdates = async (): Promise<UpdateInfo | null> => {
-  const response = await invoke<WebUpdateCheckResponse>("check_update");
+export const checkForUpdates = async (options?: {
+  force?: boolean;
+}): Promise<UpdateInfo | null> => {
+  const response = await invoke<WebUpdateCheckResponse>("check_update", {
+    ...(options?.force ? { force: true } : {}),
+  });
   if (!response?.updateAvailable) {
     return null;
   }
@@ -162,5 +166,11 @@ export const getPlatform = (): Promise<PlatformInfo> => {
     os,
     is_mobile,
     is_desktop: !is_mobile,
+    is_tauri: false,
+    capabilities: {
+      connect_sync: true,
+      device_sync: true,
+      cloud_sync: true,
+    },
   });
 };

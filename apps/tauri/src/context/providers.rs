@@ -1,12 +1,15 @@
 use super::ai_environment::TauriAiEnvironment;
-use super::registry::{DeviceSyncRuntimeState, ServiceContext};
+use super::registry::ServiceContext;
 use crate::domain_events::TauriDomainEventSink;
 use crate::secret_store::shared_secret_store;
 use crate::services::ConnectService;
+use log::error;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 use wealthfolio_ai::{AiProviderService, ChatConfig, ChatService};
-use wealthfolio_connect::{BrokerSyncService, PlatformRepository};
+use wealthfolio_connect::{
+    BrokerSyncService, CoreImportRunRepositoryAdapter, ImportRunRepositoryTrait,
+};
 use wealthfolio_core::{
     accounts::AccountService,
     activities::ActivityService,
@@ -29,7 +32,7 @@ use wealthfolio_core::{
     settings::{SettingsRepositoryTrait, SettingsService, SettingsServiceTrait},
     taxonomies::TaxonomyService,
 };
-use wealthfolio_device_sync::DeviceEnrollService;
+use wealthfolio_device_sync::{engine::DeviceSyncRuntimeState, DeviceEnrollService};
 use wealthfolio_storage_sqlite::{
     accounts::AccountRepository,
     activities::ActivityRepository,
@@ -43,7 +46,7 @@ use wealthfolio_storage_sqlite::{
     market_data::{MarketDataRepository, QuoteSyncStateRepository},
     portfolio::{snapshot::SnapshotRepository, valuation::ValuationRepository},
     settings::SettingsRepository,
-    sync::{AppSyncRepository, ImportRunRepository},
+    sync::{AppSyncRepository, BrokerSyncStateRepository, ImportRunRepository, PlatformRepository},
     taxonomies::TaxonomyRepository,
 };
 
@@ -60,7 +63,10 @@ pub async fn initialize_context(
     db::run_migrations(&db_path)?;
 
     let pool = db::create_pool(&db_path)?;
-    let writer = write_actor::spawn_writer(pool.as_ref().clone());
+    let writer = write_actor::spawn_writer(pool.as_ref().clone()).map_err(|e| {
+        error!("Failed to initialize writer actor: {}", e);
+        e
+    })?;
 
     // Instantiate Repositories
     let settings_repository = Arc::new(SettingsRepository::new(pool.clone(), writer.clone()));
@@ -78,6 +84,8 @@ pub async fn initialize_context(
     let app_sync_repository = Arc::new(AppSyncRepository::new(pool.clone(), writer.clone()));
     let valuation_repository = Arc::new(ValuationRepository::new(pool.clone(), writer.clone()));
     let platform_repository = Arc::new(PlatformRepository::new(pool.clone(), writer.clone()));
+    let broker_sync_state_repository =
+        Arc::new(BrokerSyncStateRepository::new(pool.clone(), writer.clone()));
 
     // Domain event sink - TauriDomainEventSink sends events to a channel
     // The worker will be started by the caller after the context is managed
@@ -97,6 +105,7 @@ pub async fn initialize_context(
     let settings = settings_service.get_settings()?;
     let base_currency_string = settings.base_currency.clone();
     let base_currency = Arc::new(RwLock::new(base_currency_string.clone()));
+    let timezone = Arc::new(RwLock::new(settings.timezone.clone()));
     let instance_id = Arc::new(settings.instance_id.clone());
 
     let secret_store = shared_secret_store();
@@ -141,7 +150,11 @@ pub async fn initialize_context(
     ));
 
     // Import run repository for tracking CSV imports
-    let import_run_repository = Arc::new(ImportRunRepository::new(pool.clone(), writer.clone()));
+    let import_run_repository: Arc<dyn ImportRunRepositoryTrait> =
+        Arc::new(ImportRunRepository::new(pool.clone(), writer.clone()));
+    let core_import_run_repository = Arc::new(CoreImportRunRepositoryAdapter::new(
+        import_run_repository.clone(),
+    ));
 
     let activity_service = Arc::new(
         ActivityService::with_import_run_repository(
@@ -150,26 +163,29 @@ pub async fn initialize_context(
             asset_service.clone(),
             fx_service.clone(),
             quote_service.clone(),
-            import_run_repository,
+            core_import_run_repository,
         )
         .with_event_sink(domain_event_sink.clone()),
     );
     let goal_service = Arc::new(GoalService::new(goal_repo.clone()));
-    let limits_service = Arc::new(ContributionLimitService::new(
+    let limits_service = Arc::new(ContributionLimitService::new_with_timezone(
         fx_service.clone(),
         limit_repository.clone(),
         activity_repository.clone(),
+        timezone.clone(),
     ));
 
-    let income_service = Arc::new(IncomeService::new(
+    let income_service = Arc::new(IncomeService::new_with_timezone(
         fx_service.clone(),
         activity_repository.clone(),
         base_currency.clone(),
+        timezone.clone(),
     ));
 
     let snapshot_service = Arc::new(
-        SnapshotService::new(
+        SnapshotService::new_with_timezone(
             base_currency.clone(),
+            timezone.clone(),
             account_repository.clone(),
             activity_repository.clone(),
             snapshot_repository.clone(),
@@ -179,9 +195,10 @@ pub async fn initialize_context(
         .with_event_sink(domain_event_sink.clone()),
     );
 
-    let holdings_valuation_service = Arc::new(HoldingsValuationService::new(
+    let holdings_valuation_service = Arc::new(HoldingsValuationService::new_with_timezone(
         fx_service.clone(),
         quote_service.clone(),
+        timezone.clone(),
     ));
 
     let valuation_service = Arc::new(ValuationService::new(
@@ -192,18 +209,20 @@ pub async fn initialize_context(
         fx_service.clone(),
     ));
 
-    let performance_service = Arc::new(PerformanceService::new(
+    let performance_service = Arc::new(PerformanceService::new_with_timezone(
         valuation_service.clone(),
         quote_service.clone(),
+        timezone.clone(),
     ));
 
     let classification_service =
         Arc::new(AssetClassificationService::new(taxonomy_service.clone()));
-    let holdings_service = Arc::new(HoldingsService::new(
+    let holdings_service = Arc::new(HoldingsService::new_with_timezone(
         asset_service.clone(),
         snapshot_service.clone(),
         holdings_valuation_service.clone(),
         classification_service.clone(),
+        timezone.clone(),
     ));
 
     let allocation_service = Arc::new(AllocationService::new(
@@ -241,15 +260,18 @@ pub async fn initialize_context(
             account_service.clone(),
             asset_service.clone(),
             activity_service.clone(),
+            activity_repository.clone(),
             platform_repository.clone(),
-            pool.clone(),
-            writer.clone(),
+            broker_sync_state_repository.clone(),
+            import_run_repository.clone(),
+            snapshot_repository.clone(),
         )
         .with_event_sink(domain_event_sink.clone())
-        .with_snapshot_service(snapshot_service.clone()),
+        .with_snapshot_service(snapshot_service.clone())
+        .with_quote_store(market_data_repo.clone()),
     );
 
-    let connect_service = Arc::new(ConnectService::new());
+    let connect_service = Arc::new(ConnectService::new(secret_store.clone()));
 
     // AI provider service - catalog is embedded at compile time
     let ai_catalog_json = include_str!("../../../../crates/ai/src/ai_providers.json");
@@ -281,11 +303,7 @@ pub async fn initialize_context(
     let ai_chat_service = Arc::new(ChatService::new(ai_environment, ChatConfig::default()));
 
     // Device enroll service for E2EE sync
-    let cloud_api_url = std::env::var("CONNECT_API_URL")
-        .ok()
-        .map(|v| v.trim().trim_end_matches('/').to_string())
-        .filter(|v| !v.is_empty())
-        .unwrap_or_default();
+    let cloud_api_url = crate::services::cloud_api_base_url().unwrap_or_default();
     let device_display_name = get_device_display_name();
     let app_version = Some(env!("CARGO_PKG_VERSION").to_string());
     let device_enroll_service = Arc::new(DeviceEnrollService::new(
@@ -304,6 +322,7 @@ pub async fn initialize_context(
     Ok(ContextInitResult {
         context: ServiceContext {
             base_currency,
+            timezone,
             instance_id,
             domain_event_sink,
             settings_service,

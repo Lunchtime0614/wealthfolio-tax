@@ -1,9 +1,16 @@
 import { z } from "zod";
 
+// Decimal precision constants (must match Rust crates/core/src/constants.rs)
+export const DECIMAL_PRECISION = 8;
+export const DISPLAY_DECIMAL_PRECISION = 2;
+
 // Wealthfolio Connect Portal URL - centralized configuration
 export const WEALTHFOLIO_CONNECT_PORTAL_URL = "https://connect.wealthfolio.app";
 
 export const PORTFOLIO_ACCOUNT_ID = "TOTAL";
+
+/** JSON metadata key for a non-standard option contract multiplier (e.g. mini options = 10). */
+export const METADATA_CONTRACT_MULTIPLIER = "contract_multiplier";
 
 export const HoldingType = {
   CASH: "cash",
@@ -110,6 +117,7 @@ export const ImportFormat = {
   COMMENT: "comment",
   FX_RATE: "fxRate",
   SUBTYPE: "subtype",
+  INSTRUMENT_TYPE: "instrumentType",
 } as const;
 
 export type ImportFormat = (typeof ImportFormat)[keyof typeof ImportFormat];
@@ -127,6 +135,7 @@ export const importFormatSchema = z.enum([
   ImportFormat.COMMENT,
   ImportFormat.FX_RATE,
   ImportFormat.SUBTYPE,
+  ImportFormat.INSTRUMENT_TYPE,
 ]);
 
 export const IMPORT_REQUIRED_FIELDS = [
@@ -414,6 +423,7 @@ export const InstrumentType = {
   FX: "FX",
   OPTION: "OPTION",
   METAL: "METAL",
+  BOND: "BOND",
 } as const;
 
 export type InstrumentType = (typeof InstrumentType)[keyof typeof InstrumentType];
@@ -425,6 +435,7 @@ export const INSTRUMENT_TYPE_OPTIONS = [
   { value: InstrumentType.FX, label: "FX" },
   { value: InstrumentType.OPTION, label: "Option" },
   { value: InstrumentType.METAL, label: "Metal" },
+  { value: InstrumentType.BOND, label: "Bond" },
 ] as const;
 
 /**

@@ -2,13 +2,17 @@ import { TickerAvatar } from "@/components/ticker-avatar";
 import { Card } from "@wealthfolio/ui/components/ui/card";
 import {
   calculateActivityValue,
+  formatSplitRatio,
+  isAssetBackedIncomeActivity,
   isCashActivity,
   isCashTransfer,
   isFeeActivity,
   isIncomeActivity,
   isSplitActivity,
 } from "@/lib/activity-utils";
-import { ActivityTypeNames } from "@/lib/constants";
+import { ActivityType, ActivityTypeNames } from "@/lib/constants";
+import { parseOccSymbol } from "@/lib/occ-symbol";
+import { useSettingsContext } from "@/lib/settings-provider";
 import { ActivityDetails } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
 import { formatAmount, Separator } from "@wealthfolio/ui";
@@ -31,6 +35,9 @@ export const ActivityTableMobile = ({
   handleDelete,
   onDuplicate,
 }: ActivityTableMobileProps) => {
+  const { settings } = useSettingsContext();
+  const appTimezone = settings?.timezone?.trim() || undefined;
+
   if (activities.length === 0) {
     return (
       <div className="flex h-48 flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center">
@@ -46,11 +53,26 @@ export const ActivityTableMobile = ({
     <div className="min-h-0 flex-1 space-y-2 overflow-auto">
       {activities.map((activity) => {
         const symbol = activity.assetSymbol;
-        const displaySymbol = symbol.startsWith("$CASH") ? symbol.split("-")[0] : symbol;
-        const avatarSymbol = symbol.startsWith("$CASH") ? "$CASH" : symbol;
-        const isCash = symbol.startsWith("$CASH");
-        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const formattedDate = formatDateTime(activity.date, userTimezone);
+        const activityType = activity.activityType;
+        const isTransferActivity =
+          activityType === ActivityType.TRANSFER_IN || activityType === ActivityType.TRANSFER_OUT;
+        const isAssetBackedIncome = isAssetBackedIncomeActivity(
+          activityType,
+          symbol,
+          activity.assetId,
+        );
+        const hasAsset = Boolean(activity.assetId?.trim());
+        const isCash = isTransferActivity
+          ? !hasAsset || isCashTransfer(activityType, symbol)
+          : isCashActivity(activityType) && !isAssetBackedIncome;
+        const isOptionActivity = activity.instrumentType === "OPTION";
+        const parsedOption = isOptionActivity ? parseOccSymbol(symbol) : null;
+        const displaySymbol = isCash ? "Cash" : parsedOption ? parsedOption.underlying : symbol;
+        const avatarSymbol = isCash ? "$CASH" : symbol;
+        const optionSubtitle = parsedOption
+          ? `${new Date(parsedOption.expiration + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })} $${parsedOption.strikePrice} ${parsedOption.optionType}`
+          : null;
+        const formattedDate = formatDateTime(activity.date, appTimezone);
         const displayValue = calculateActivityValue(activity);
 
         // Compact View
@@ -59,64 +81,53 @@ export const ActivityTableMobile = ({
           return (
             <Card key={activity.id} className="p-3">
               <div className="flex items-center gap-3">
-                {isCash ? (
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <TickerAvatar symbol={avatarSymbol} className="h-10 w-10 flex-shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <p className="truncate font-semibold">{displaySymbol}</p>
-                        {activity.activityType !== "SPLIT" && (
-                          <span className="shrink-0 text-sm font-semibold">
-                            {formatAmount(displayValue, activity.currency)}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-muted-foreground text-xs">{activityTypeLabel}</p>
-                      <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
-                        <span>{formattedDate.date}</span>
-                        {!isCashActivity(activity.activityType) &&
-                          !isIncomeActivity(activity.activityType) &&
-                          !isSplitActivity(activity.activityType) &&
-                          !isFeeActivity(activity.activityType) && (
-                            <>
-                              <span>•</span>
-                              <span>{activity.quantity} shares</span>
-                            </>
+                {(() => {
+                  const inner = (
+                    <>
+                      <TickerAvatar symbol={avatarSymbol} className="h-10 w-10 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <p className="truncate font-semibold">{displaySymbol}</p>
+                          {activity.activityType !== "SPLIT" && (
+                            <span className="shrink-0 text-sm font-semibold">
+                              {formatAmount(displayValue, activity.currency)}
+                            </span>
                           )}
+                        </div>
+                        <p className="text-muted-foreground text-xs">
+                          {optionSubtitle
+                            ? `${activityTypeLabel} · ${optionSubtitle}`
+                            : activityTypeLabel}
+                        </p>
+                        <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
+                          <span>{formattedDate.date}</span>
+                          {!isCash &&
+                            !(isIncomeActivity(activity.activityType) && !isAssetBackedIncome) &&
+                            !isSplitActivity(activity.activityType) &&
+                            !isFeeActivity(activity.activityType) &&
+                            activity.quantity && (
+                              <>
+                                <span>•</span>
+                                <span>
+                                  {activity.quantity} {isOptionActivity ? "contracts" : "shares"}
+                                </span>
+                              </>
+                            )}
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                ) : (
-                  <Link
-                    to={`/holdings/${encodeURIComponent(activity.assetId)}`}
-                    className="flex min-w-0 flex-1 items-center gap-3"
-                  >
-                    <TickerAvatar symbol={avatarSymbol} className="h-10 w-10 flex-shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <p className="truncate font-semibold">{displaySymbol}</p>
-                        {activity.activityType !== "SPLIT" && (
-                          <span className="shrink-0 text-sm font-semibold">
-                            {formatAmount(displayValue, activity.currency)}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-muted-foreground text-xs">{activityTypeLabel}</p>
-                      <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
-                        <span>{formattedDate.date}</span>
-                        {!isCashActivity(activity.activityType) &&
-                          !isIncomeActivity(activity.activityType) &&
-                          !isSplitActivity(activity.activityType) &&
-                          !isFeeActivity(activity.activityType) && (
-                            <>
-                              <span>•</span>
-                              <span>{activity.quantity} shares</span>
-                            </>
-                          )}
-                      </div>
-                    </div>
-                  </Link>
-                )}
+                    </>
+                  );
+                  return isCash || !hasAsset ? (
+                    <div className="flex min-w-0 flex-1 items-center gap-3">{inner}</div>
+                  ) : (
+                    <Link
+                      to={`/holdings/${encodeURIComponent(activity.assetId)}`}
+                      className="flex min-w-0 flex-1 items-center gap-3"
+                    >
+                      {inner}
+                    </Link>
+                  );
+                })()}
                 <ActivityOperations
                   activity={activity}
                   onEdit={handleEdit}
@@ -134,30 +145,29 @@ export const ActivityTableMobile = ({
             <div className="space-y-2">
               {/* Header: Symbol and Date */}
               <div className="flex items-start justify-between">
-                {isCash ? (
-                  <div className="flex items-center gap-2">
-                    <TickerAvatar symbol={avatarSymbol} className="h-10 w-10" />
-                    <div>
-                      <p className="font-semibold">{displaySymbol}</p>
-                      <p className="text-muted-foreground text-xs">
-                        {isCash ? activity.currency : activity.assetName}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <Link
-                    to={`/holdings/${encodeURIComponent(activity.assetId)}`}
-                    className="flex items-center gap-2"
-                  >
-                    <TickerAvatar symbol={avatarSymbol} className="h-10 w-10" />
-                    <div>
-                      <p className="font-semibold">{displaySymbol}</p>
-                      <p className="text-muted-foreground text-xs">
-                        {isCash ? activity.currency : activity.assetName}
-                      </p>
-                    </div>
-                  </Link>
-                )}
+                {(() => {
+                  const inner = (
+                    <>
+                      <TickerAvatar symbol={avatarSymbol} className="h-10 w-10" />
+                      <div>
+                        <p className="font-semibold">{displaySymbol}</p>
+                        <p className="text-muted-foreground text-xs">
+                          {isCash ? activity.currency : (optionSubtitle ?? activity.assetName)}
+                        </p>
+                      </div>
+                    </>
+                  );
+                  return isCash || !hasAsset ? (
+                    <div className="flex items-center gap-2">{inner}</div>
+                  ) : (
+                    <Link
+                      to={`/holdings/${encodeURIComponent(activity.assetId)}`}
+                      className="flex items-center gap-2"
+                    >
+                      {inner}
+                    </Link>
+                  );
+                })()}
                 <ActivityOperations
                   activity={activity}
                   onEdit={handleEdit}
@@ -185,12 +195,15 @@ export const ActivityTableMobile = ({
                 </div>
 
                 {/* Quantity (if applicable) */}
-                {!isCashActivity(activity.activityType) &&
-                  !isIncomeActivity(activity.activityType) &&
+                {!isCash &&
+                  !(isIncomeActivity(activity.activityType) && !isAssetBackedIncome) &&
                   !isSplitActivity(activity.activityType) &&
-                  !isFeeActivity(activity.activityType) && (
+                  !isFeeActivity(activity.activityType) &&
+                  activity.quantity && (
                     <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Shares</span>
+                      <span className="text-muted-foreground">
+                        {isOptionActivity ? "Contracts" : "Shares"}
+                      </span>
                       <span className="font-medium">{activity.quantity}</span>
                     </div>
                   )}
@@ -200,20 +213,22 @@ export const ActivityTableMobile = ({
                   <span className="text-muted-foreground">
                     {activity.activityType === "SPLIT"
                       ? "Ratio"
-                      : isCashActivity(activity.activityType) ||
+                      : (isCashActivity(activity.activityType) && !isAssetBackedIncome) ||
                           isCashTransfer(activity.activityType, symbol) ||
-                          isIncomeActivity(activity.activityType)
+                          (isIncomeActivity(activity.activityType) && !isAssetBackedIncome)
                         ? "Amount"
-                        : "Price"}
+                        : isOptionActivity
+                          ? "Premium"
+                          : "Price"}
                   </span>
                   <span className="font-medium">
                     {activity.activityType === "FEE"
                       ? "-"
                       : activity.activityType === "SPLIT"
-                        ? `${Number(activity.amount).toFixed(0)} : 1`
-                        : isCashActivity(activity.activityType) ||
+                        ? formatSplitRatio(Number(activity.amount))
+                        : (isCashActivity(activity.activityType) && !isAssetBackedIncome) ||
                             isCashTransfer(activity.activityType, symbol) ||
-                            isIncomeActivity(activity.activityType)
+                            (isIncomeActivity(activity.activityType) && !isAssetBackedIncome)
                           ? formatAmount(Number(activity.amount), activity.currency)
                           : formatAmount(Number(activity.unitPrice), activity.currency)}
                   </span>

@@ -1,5 +1,5 @@
-import { logger, createActivity, deleteActivity, saveActivities, updateActivity } from "@/adapters";
-import { toast } from "@wealthfolio/ui/components/ui/use-toast";
+import { createActivity, deleteActivity, logger, saveActivities, updateActivity } from "@/adapters";
+import { generateId } from "@/lib/id";
 import {
   ActivityBulkMutationRequest,
   ActivityBulkMutationResult,
@@ -8,12 +8,61 @@ import {
   ActivityUpdate,
 } from "@/lib/types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { NewActivityFormValues } from "../components/forms/schemas";
 
 export function useActivityMutations(
   onSuccess?: (activity: { accountId?: string | null }) => void,
 ) {
   const queryClient = useQueryClient();
+  const normalizeOptionalString = (value: unknown): string | undefined => {
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    return trimmed === "" ? undefined : trimmed;
+  };
+
+  const buildSymbolInput = ({
+    assetId,
+    symbolId,
+    exchangeMic,
+    quoteMode,
+    assetKind,
+    assetMetadata,
+    symbolQuoteCcy,
+    symbolInstrumentType,
+    includeId,
+  }: {
+    assetId?: string;
+    symbolId?: string;
+    exchangeMic?: string;
+    quoteMode?: string;
+    assetKind?: string;
+    assetMetadata?: { name?: string; kind?: string; exchangeMic?: string };
+    symbolQuoteCcy?: string;
+    symbolInstrumentType?: string;
+    includeId: boolean;
+  }): ActivityCreate["symbol"] => {
+    const normalizedAssetId = normalizeOptionalString(assetId);
+    const normalizedSymbolId = normalizeOptionalString(symbolId);
+    const symbol = {
+      id: includeId ? (normalizedSymbolId ?? normalizedAssetId) : undefined,
+      symbol: normalizedAssetId,
+      exchangeMic: normalizeOptionalString(exchangeMic),
+      kind: normalizeOptionalString(assetKind) ?? normalizeOptionalString(assetMetadata?.kind),
+      name: normalizeOptionalString(assetMetadata?.name),
+      quoteMode: normalizeOptionalString(quoteMode) as ActivityCreate["symbol"] extends {
+        quoteMode?: infer P;
+      }
+        ? P
+        : never,
+      quoteCcy: normalizeOptionalString(symbolQuoteCcy),
+      instrumentType: normalizeOptionalString(symbolInstrumentType),
+    };
+
+    const hasAnyField = Object.values(symbol).some((v) => v !== undefined);
+    return hasAnyField ? symbol : undefined;
+  };
+
   const toDecimalPayload = (value: unknown): string | null | undefined => {
     if (value === null) return null;
     if (value === undefined) return undefined;
@@ -28,12 +77,8 @@ export function useActivityMutations(
     },
     onError: (error: string) => {
       logger.error(`Error ${action} activity: ${String(error)}`);
-      toast({
-        title: `Uh oh! Something went wrong ${action} this activity.`,
-        description: `Please try again or report an issue if the problem persists. Error: ${String(
-          error,
-        )}`,
-        variant: "destructive",
+      toast.error(`Failed ${action} activity`, {
+        description: String(error),
       });
     },
   });
@@ -50,6 +95,10 @@ export function useActivityMutations(
         assetKind,
         symbolQuoteCcy,
         symbolInstrumentType,
+        transferMode: _transferMode,
+        isExternal: _isExternal,
+        direction: _direction,
+        toAccountId: _toAccountId,
         ...rest
       } = data as NewActivityFormValues & {
         assetId?: string;
@@ -60,6 +109,10 @@ export function useActivityMutations(
         assetKind?: string;
         symbolQuoteCcy?: string;
         symbolInstrumentType?: string;
+        transferMode?: string;
+        isExternal?: boolean;
+        direction?: string;
+        toAccountId?: string;
       };
       const quantity = "quantity" in rest ? rest.quantity : undefined;
       const unitPrice = "unitPrice" in rest ? rest.unitPrice : undefined;
@@ -75,18 +128,16 @@ export function useActivityMutations(
         amount: toDecimalPayload(amount),
         fee: toDecimalPayload(fee),
         fxRate: toDecimalPayload(fxRate),
-        // Use nested symbol object
-        symbol: {
-          symbol: assetId,
+        symbol: buildSymbolInput({
+          assetId,
           exchangeMic,
-          kind: assetKind || assetMetadata?.kind,
-          name: assetMetadata?.name,
-          quoteMode: quoteMode as ActivityCreate["symbol"] extends { quoteMode?: infer P }
-            ? P
-            : never,
-          quoteCcy: symbolQuoteCcy,
-          instrumentType: symbolInstrumentType,
-        },
+          quoteMode,
+          assetKind,
+          assetMetadata,
+          symbolQuoteCcy,
+          symbolInstrumentType,
+          includeId: false,
+        }),
         // Serialize metadata object to JSON string for backend
         metadata: metadata ? JSON.stringify(metadata) : undefined,
       };
@@ -101,6 +152,7 @@ export function useActivityMutations(
       // Extract asset-related fields from form data
       const {
         assetId,
+        existingAssetId,
         exchangeMic,
         metadata,
         assetMetadata,
@@ -108,10 +160,15 @@ export function useActivityMutations(
         assetKind,
         symbolQuoteCcy,
         symbolInstrumentType,
+        transferMode: _transferMode2,
+        isExternal: _isExternal2,
+        direction: _direction2,
+        toAccountId: _toAccountId2,
         ...rest
       } = data as NewActivityFormValues & {
         id: string;
         assetId?: string;
+        existingAssetId?: string;
         exchangeMic?: string;
         metadata?: Record<string, unknown>;
         assetMetadata?: { name?: string; kind?: string; exchangeMic?: string };
@@ -119,6 +176,10 @@ export function useActivityMutations(
         assetKind?: string;
         symbolQuoteCcy?: string;
         symbolInstrumentType?: string;
+        transferMode?: string;
+        isExternal?: boolean;
+        direction?: string;
+        toAccountId?: string;
       };
       const quantity = "quantity" in rest ? rest.quantity : undefined;
       const unitPrice = "unitPrice" in rest ? rest.unitPrice : undefined;
@@ -134,24 +195,33 @@ export function useActivityMutations(
         amount: toDecimalPayload(amount),
         fee: toDecimalPayload(fee),
         fxRate: toDecimalPayload(fxRate),
-        // Use nested symbol object
-        symbol: {
-          id: assetId, // For updates, assetId may be the canonical ID
-          symbol: assetId,
+        symbol: buildSymbolInput({
+          assetId,
+          symbolId: existingAssetId,
           exchangeMic,
-          kind: assetKind || assetMetadata?.kind,
-          name: assetMetadata?.name,
-          quoteMode: quoteMode as ActivityUpdate["symbol"] extends { quoteMode?: infer P }
-            ? P
-            : never,
-          quoteCcy: symbolQuoteCcy,
-          instrumentType: symbolInstrumentType,
-        },
+          quoteMode,
+          assetKind,
+          assetMetadata,
+          symbolQuoteCcy,
+          symbolInstrumentType,
+          includeId: true,
+        }),
         // Serialize metadata object to JSON string for backend
         metadata: metadata ? JSON.stringify(metadata) : undefined,
       };
       // Backend handles quote creation for MANUAL pricing mode
-      return await updateActivity(updatePayload);
+      const result = await updateActivity(updatePayload);
+
+      if (!result || typeof result !== "object" || !("id" in result)) {
+        throw new Error("Failed updating activity");
+      }
+
+      const serverError = (result as unknown as Record<string, unknown>).error;
+      if (typeof serverError === "string" && serverError.trim()) {
+        throw new Error(serverError);
+      }
+
+      return result;
     },
     ...createMutationOptions("updating"),
   });
@@ -177,6 +247,7 @@ export function useActivityMutations(
 
     // For duplicating, use nested asset object
     const createPayload: ActivityCreate = {
+      idempotencyKey: generateId("manual-duplicate"),
       accountId: restOfActivityData.accountId,
       activityType: restOfActivityData.activityType,
       subtype: restOfActivityData.subtype,
@@ -232,6 +303,14 @@ export function useActivityMutations(
     },
     onSuccess: (result: ActivityBulkMutationResult) => {
       queryClient.invalidateQueries();
+
+      // Show errors from partial failures
+      if (result.errors?.length > 0) {
+        const messages = result.errors.map((e) => e.message).join("; ");
+        toast.error("Some activities failed to save", { description: messages });
+        logger.error(`Bulk save partial failure: ${JSON.stringify(result.errors)}`);
+      }
+
       // Call onSuccess with first created activity for sheet close callback
       if (onSuccess && result.created.length > 0) {
         onSuccess({ accountId: result.created[0].accountId });
@@ -239,11 +318,8 @@ export function useActivityMutations(
     },
     onError: (error: string) => {
       logger.error(`Error saving activities: ${String(error)}`);
-      toast({
-        title: "Uh oh! Something went wrong saving activities.",
-        description:
-          "Please make sure every activity has a symbol or cash currency, date, and account, then try again. If the problem persists, please report the issue.",
-        variant: "destructive",
+      toast.error("Failed to save activities", {
+        description: String(error),
       });
     },
   });

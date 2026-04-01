@@ -411,23 +411,7 @@ function ProviderSettings({
                   {/* Sync Status */}
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">Sync Status</Label>
-                    {provider.assetCount === 0 ? (
-                      <div className="flex items-center gap-2">
-                        <Icons.MinusCircle className="text-muted-foreground h-4 w-4" />
-                        <span className="text-muted-foreground text-xs">
-                          No assets using this provider
-                        </span>
-                      </div>
-                    ) : provider.errorCount === 0 ? (
-                      <div className="flex items-center gap-2">
-                        <Icons.CheckCircle className="h-4 w-4 text-green-500" />
-                        <span className="text-muted-foreground text-xs">
-                          {provider.lastSyncedAt
-                            ? `Last sync: ${new Date(provider.lastSyncedAt).toLocaleString()}`
-                            : "Pending sync"}
-                        </span>
-                      </div>
-                    ) : (
+                    {provider.errorCount > 0 ? (
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
                           <Icons.XCircle className="h-4 w-4 text-red-500" />
@@ -446,6 +430,22 @@ function ProviderSettings({
                             Last sync: {new Date(provider.lastSyncedAt).toLocaleString()}
                           </p>
                         )}
+                      </div>
+                    ) : provider.assetCount === 0 ? (
+                      <div className="flex items-center gap-2">
+                        <Icons.MinusCircle className="text-muted-foreground h-4 w-4" />
+                        <span className="text-muted-foreground text-xs">
+                          No assets using this provider
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Icons.CheckCircle className="h-4 w-4 text-green-500" />
+                        <span className="text-muted-foreground text-xs">
+                          {provider.lastSyncedAt
+                            ? `Last sync: ${new Date(provider.lastSyncedAt).toLocaleString()}`
+                            : "Pending sync"}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -511,7 +511,7 @@ export default function MarketDataSettingsPage() {
         <SettingsHeader heading="Market Data" text="Configure your market data providers." />
         <Separator />
         <div className="overflow-hidden rounded-lg border">
-          {[1, 2, 3, 4].map((i) => (
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
             <div key={i} className="flex items-center gap-4 border-b px-4 py-3 last:border-b-0">
               <Skeleton className="h-9 w-9 rounded-lg" />
               <div className="flex-1 space-y-2">

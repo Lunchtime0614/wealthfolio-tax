@@ -12,6 +12,7 @@ import { Link } from "react-router-dom";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import remarkGfm from "remark-gfm";
 
+import { ExternalLink } from "@/components/external-link";
 import { cn } from "@/lib/utils";
 import { TooltipIconButton } from "./tooltip-icon-button";
 
@@ -88,17 +89,15 @@ const MarkdownLink: FC<React.AnchorHTMLAttributes<HTMLAnchorElement>> = ({
     );
   }
 
-  // External link - open in new tab
+  // External link - open via platform adapter
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
+    <ExternalLink
+      href={href ?? "#"}
       className={cn("text-primary hover:text-primary/80 underline underline-offset-2", className)}
       {...props}
     >
       {children}
-    </a>
+    </ExternalLink>
   );
 };
 
@@ -135,20 +134,22 @@ const customComponents = memoizeMarkdownComponents({
   },
   // Code header with copy button
   CodeHeader,
-  // Tables with better styling for data display
+  // Tables with horizontal scroll for overflow content
   table: ({ className, ...props }) => (
-    <table
-      className={cn(
-        "aui-md-table not-prose my-3 w-full border-separate border-spacing-0 text-sm",
-        className,
-      )}
-      {...props}
-    />
+    <div className="overflow-x-auto">
+      <table
+        className={cn(
+          "aui-md-table not-prose my-3 w-full border-separate border-spacing-0 text-sm",
+          className,
+        )}
+        {...props}
+      />
+    </div>
   ),
   th: ({ className, ...props }) => (
     <th
       className={cn(
-        "aui-md-th bg-muted px-3 py-2 text-left text-xs font-semibold first:rounded-tl-lg last:rounded-tr-lg",
+        "aui-md-th bg-muted whitespace-nowrap px-3 py-2 text-left text-xs font-semibold first:rounded-tl-lg last:rounded-tr-lg",
         className,
       )}
       {...props}
@@ -157,7 +158,7 @@ const customComponents = memoizeMarkdownComponents({
   td: ({ className, ...props }) => (
     <td
       className={cn(
-        "aui-md-td border-b border-l px-3 py-2 text-left text-sm last:border-r",
+        "aui-md-td whitespace-nowrap border-b border-l px-3 py-2 text-left text-sm last:border-r",
         className,
       )}
       {...props}

@@ -161,6 +161,8 @@ pub struct ActivityDetailsDB {
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
     pub asset_pricing_mode: Option<String>,
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub instrument_type: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
     pub metadata: Option<String>,
 }
 
@@ -248,6 +250,14 @@ impl From<ActivityDetailsDB> for wealthfolio_core::activities::ActivityDetails {
             _ => ActivityStatus::Posted, // Default to Posted for unknown values
         };
 
+        let amount = db.amount.or_else(|| {
+            let q = db.quantity.as_ref()?;
+            let p = db.unit_price.as_ref()?;
+            let qty = parse_decimal_string_tolerant(q, "quantity");
+            let price = parse_decimal_string_tolerant(p, "unit_price");
+            Some((qty * price).to_string())
+        });
+
         Self {
             id: db.id,
             account_id: db.account_id,
@@ -260,7 +270,7 @@ impl From<ActivityDetailsDB> for wealthfolio_core::activities::ActivityDetails {
             unit_price: db.unit_price,
             currency: db.currency,
             fee: db.fee,
-            amount: db.amount,
+            amount,
             needs_review: db.needs_review != 0,
             comment: db.notes,
             fx_rate: db.fx_rate,
@@ -274,6 +284,7 @@ impl From<ActivityDetailsDB> for wealthfolio_core::activities::ActivityDetails {
             asset_pricing_mode: db
                 .asset_pricing_mode
                 .unwrap_or_else(|| "MARKET".to_string()),
+            instrument_type: db.instrument_type,
             source_system: db.source_system,
             source_record_id: db.source_record_id,
             idempotency_key: db.idempotency_key,

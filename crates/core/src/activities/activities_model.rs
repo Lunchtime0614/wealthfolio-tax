@@ -53,7 +53,7 @@ pub struct Activity {
     pub asset_id: Option<String>, // NOW OPTIONAL - NULL for pure cash movements
 
     // Classification
-    pub activity_type: String, // Canonical type (closed set of 15)
+    pub activity_type: String, // Canonical type (closed set of 14)
     pub activity_type_override: Option<String>, // User override (never touched by sync)
     pub source_type: Option<String>, // Raw provider label (REI, DIV, etc.)
     pub subtype: Option<String>, // Semantic variation (DRIP, STAKING_REWARD, etc.)
@@ -134,24 +134,28 @@ impl Activity {
         self.activity_type_override.is_some()
     }
 
-    /// Get quantity, defaulting to zero if not set
+    /// Get quantity, defaulting to zero if not set.
+    /// Always returns absolute value — direction is determined by activity type.
     pub fn qty(&self) -> Decimal {
-        self.quantity.unwrap_or(Decimal::ZERO)
+        self.quantity.unwrap_or(Decimal::ZERO).abs()
     }
 
-    /// Get unit price, defaulting to zero if not set
+    /// Get unit price, defaulting to zero if not set.
+    /// Always returns absolute value.
     pub fn price(&self) -> Decimal {
-        self.unit_price.unwrap_or(Decimal::ZERO)
+        self.unit_price.unwrap_or(Decimal::ZERO).abs()
     }
 
-    /// Get amount, defaulting to zero if not set
+    /// Get amount, defaulting to zero if not set.
+    /// Always returns absolute value — direction is determined by activity type.
     pub fn amt(&self) -> Decimal {
-        self.amount.unwrap_or(Decimal::ZERO)
+        self.amount.unwrap_or(Decimal::ZERO).abs()
     }
 
-    /// Get fee, defaulting to zero if not set
+    /// Get fee, defaulting to zero if not set.
+    /// Always returns absolute value.
     pub fn fee_amt(&self) -> Decimal {
-        self.fee.unwrap_or(Decimal::ZERO)
+        self.fee.unwrap_or(Decimal::ZERO).abs()
     }
 
     /// Get typed metadata value
@@ -174,15 +178,15 @@ pub struct SymbolInput {
     pub symbol: Option<String>,
     /// Exchange MIC code (e.g., "XNAS", "XTSE") for securities
     pub exchange_mic: Option<String>,
-    /// Asset kind hint (e.g., "SECURITY", "CRYPTO") - if not provided, inferred
+    /// Asset kind input (e.g., "SECURITY", "CRYPTO") - if not provided, inferred
     pub kind: Option<String>,
     /// Asset name for custom/manual assets
     pub name: Option<String>,
     /// Quote mode: "MARKET" or "MANUAL" - controls how asset is priced
     pub quote_mode: Option<String>,
-    /// Optional quote currency hint from symbol search/provider (e.g., "GBp")
+    /// Optional quote currency from symbol search/provider (e.g., "GBp")
     pub quote_ccy: Option<String>,
-    /// Optional instrument type hint from symbol search/provider (e.g., "EQUITY", "CRYPTO")
+    /// Optional instrument type from symbol search/provider (e.g., "EQUITY", "CRYPTO")
     pub instrument_type: Option<String>,
 }
 
@@ -223,6 +227,7 @@ pub struct NewActivity {
     )]
     pub amount: Option<Decimal>,
     pub status: Option<ActivityStatus>,
+    #[serde(alias = "comment")]
     pub notes: Option<String>,
     #[serde(
         default,
@@ -278,7 +283,7 @@ impl NewActivity {
         self.symbol.as_ref().and_then(|a| a.exchange_mic.as_deref())
     }
 
-    pub fn get_kind_hint(&self) -> Option<&str> {
+    pub fn get_kind(&self) -> Option<&str> {
         self.symbol.as_ref().and_then(|a| a.kind.as_deref())
     }
 
@@ -290,11 +295,11 @@ impl NewActivity {
         self.symbol.as_ref().and_then(|a| a.quote_mode.as_deref())
     }
 
-    pub fn get_quote_ccy_hint(&self) -> Option<&str> {
+    pub fn get_quote_ccy(&self) -> Option<&str> {
         self.symbol.as_ref().and_then(|a| a.quote_ccy.as_deref())
     }
 
-    pub fn get_instrument_type_hint(&self) -> Option<&str> {
+    pub fn get_instrument_type(&self) -> Option<&str> {
         self.symbol
             .as_ref()
             .and_then(|a| a.instrument_type.as_deref())
@@ -385,7 +390,7 @@ impl ActivityUpdate {
         self.symbol.as_ref().and_then(|a| a.exchange_mic.as_deref())
     }
 
-    pub fn get_kind_hint(&self) -> Option<&str> {
+    pub fn get_kind(&self) -> Option<&str> {
         self.symbol.as_ref().and_then(|a| a.kind.as_deref())
     }
 
@@ -397,11 +402,11 @@ impl ActivityUpdate {
         self.symbol.as_ref().and_then(|a| a.quote_mode.as_deref())
     }
 
-    pub fn get_quote_ccy_hint(&self) -> Option<&str> {
+    pub fn get_quote_ccy(&self) -> Option<&str> {
         self.symbol.as_ref().and_then(|a| a.quote_ccy.as_deref())
     }
 
-    pub fn get_instrument_type_hint(&self) -> Option<&str> {
+    pub fn get_instrument_type(&self) -> Option<&str> {
         self.symbol
             .as_ref()
             .and_then(|a| a.instrument_type.as_deref())
@@ -477,6 +482,7 @@ pub struct ActivityDetails {
     pub asset_name: Option<String>,
     pub exchange_mic: Option<String>,
     pub asset_pricing_mode: String, // MARKET, MANUAL, DERIVED, NONE
+    pub instrument_type: Option<String>,
     // Sync/source metadata
     pub source_system: Option<String>,
     pub source_record_id: Option<String>,
@@ -580,11 +586,11 @@ pub struct ActivityImport {
     pub symbol_name: Option<String>,
     /// Resolved exchange MIC for the symbol (populated during validation)
     pub exchange_mic: Option<String>,
-    /// Optional quote currency hint for the resolved symbol (e.g., "GBp")
+    /// Optional quote currency for the resolved symbol (e.g., "GBp")
     pub quote_ccy: Option<String>,
-    /// Optional resolved instrument type hint (e.g., "EQUITY", "CRYPTO")
+    /// Optional resolved instrument type (e.g., "EQUITY", "CRYPTO")
     pub instrument_type: Option<String>,
-    /// Optional quote mode hint (e.g., "MANUAL", "MARKET")
+    /// Optional quote mode (e.g., "MANUAL", "MARKET")
     pub quote_mode: Option<String>,
     pub errors: Option<std::collections::HashMap<String, Vec<String>>>,
     pub warnings: Option<std::collections::HashMap<String, Vec<String>>>,

@@ -18,13 +18,17 @@ import { MobileNavBar } from "./navigation/mobile-navbar";
 import { NavigationModeProvider, useNavigationMode } from "./navigation/navigation-mode-context";
 
 const AppLayoutContent = () => {
-  const { data: settings, isLoading: isSettingsLoading } = useSettings();
+  const { data: settings, isSuccess: isSettingsReady } = useSettings();
   const location = useLocation();
   const navigation = useNavigation();
   const { isMobile } = usePlatform();
   const isMobileViewport = useIsMobileViewport();
+  const isIPad =
+    typeof window !== "undefined" &&
+    (/ipad/i.test(window.navigator.userAgent) ||
+      (/macintosh/i.test(window.navigator.userAgent) && window.navigator.maxTouchPoints > 1));
   const { isLaunchBar, isFocusMode } = useNavigationMode();
-  const shouldUseMobileNavigation = isMobile || isMobileViewport;
+  const shouldUseMobileNavigation = isIPad ? false : isMobile || isMobileViewport;
   const shouldUseBottomNavigation = shouldUseMobileNavigation || (isLaunchBar && !isFocusMode);
   const isDesktopFocusMode = !shouldUseMobileNavigation && isFocusMode;
   const launchBarHeight =
@@ -33,7 +37,16 @@ const AppLayoutContent = () => {
   useGlobalEventListener();
   useNavigationEventListener();
 
-  if (isSettingsLoading) return null;
+  if (!isSettingsReady) {
+    return (
+      <div
+        className="flex h-screen items-center justify-center"
+        style={{ backgroundColor: "#09090b" }}
+      >
+        <img src="/logo-gold.png" alt="Wealthfolio" className="h-[100px] w-auto" />
+      </div>
+    );
+  }
 
   if (!settings?.onboardingCompleted && location.pathname !== "/onboarding") {
     return <Navigate to="/onboarding" />;

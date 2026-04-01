@@ -5,11 +5,13 @@
 //! and broker sync.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
-use wealthfolio_connect::BrokerSyncServiceTrait;
+use wealthfolio_connect::{
+    ensure_valid_access_token, BrokerSyncServiceTrait, TokenLifecycleConfig, TokenLifecycleState,
+};
 use wealthfolio_core::{assets::AssetServiceTrait, events::DomainEvent, secrets::SecretStore};
 
 use super::planner::{plan_asset_enrichment, plan_broker_sync, plan_portfolio_job};
@@ -35,8 +37,11 @@ pub struct QueueWorkerDeps {
         Arc<dyn wealthfolio_core::portfolio::valuation::ValuationServiceTrait + Send + Sync>,
     pub account_service: Arc<wealthfolio_core::accounts::AccountService>,
     pub fx_service: Arc<dyn wealthfolio_core::fx::FxServiceTrait + Send + Sync>,
+    pub timezone: Arc<RwLock<String>>,
     /// Secret store for accessing credentials (e.g., refresh tokens for broker sync)
     pub secret_store: Arc<dyn SecretStore>,
+    /// Shared token lifecycle state; must be the same instance used by API handlers.
+    pub token_lifecycle: Arc<TokenLifecycleState>,
 }
 
 /// Runs the event queue worker.
@@ -119,8 +124,79 @@ pub async fn event_queue_worker(
 async fn process_event_batch(events: &[DomainEvent], deps: Arc<QueueWorkerDeps>) {
     tracing::info!("Processing batch of {} domain event(s)", events.len());
 
-    // 1. Plan and trigger portfolio job
-    if let Some(config) = plan_portfolio_job(events) {
+    // 1. Plan and run asset enrichment FIRST so that bond metadata (coupon rate,
+    //    maturity date, etc.) is available before the portfolio job tries to
+    //    sync quotes and calculate snapshots.
+    let enrichment_assets = plan_asset_enrichment(events);
+    if !enrichment_assets.is_empty() {
+        tracing::info!(
+            "Triggering asset enrichment for {} asset(s)",
+            enrichment_assets.len()
+        );
+
+        let total = enrichment_assets.len();
+        deps.event_bus
+            .publish(crate::events::ServerEvent::with_payload(
+                crate::events::ASSET_ENRICHMENT_START,
+                serde_json::json!({ "total": total }),
+            ));
+
+        let mut total_enriched: usize = 0;
+        let mut total_skipped: usize = 0;
+        let mut total_failed: usize = 0;
+
+        let chunk_size = 5;
+
+        for chunk in enrichment_assets.chunks(chunk_size) {
+            match tokio::time::timeout(
+                Duration::from_secs(30),
+                deps.asset_service.enrich_assets(chunk.to_vec()),
+            )
+            .await
+            {
+                Ok(Ok((enriched, skipped, failed))) => {
+                    total_enriched += enriched;
+                    total_skipped += skipped;
+                    total_failed += failed;
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!("Asset enrichment chunk failed: {}", e);
+                    total_failed += chunk.len();
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "Asset enrichment chunk timed out ({} asset(s))",
+                        chunk.len()
+                    );
+                    total_failed += chunk.len();
+                }
+            }
+
+            let completed = total_enriched + total_skipped + total_failed;
+            deps.event_bus
+                .publish(crate::events::ServerEvent::with_payload(
+                    crate::events::ASSET_ENRICHMENT_PROGRESS,
+                    serde_json::json!({
+                        "completed": completed,
+                        "total": total,
+                    }),
+                ));
+        }
+
+        deps.event_bus
+            .publish(crate::events::ServerEvent::with_payload(
+                crate::events::ASSET_ENRICHMENT_COMPLETE,
+                serde_json::json!({
+                    "enriched": total_enriched,
+                    "skipped": total_skipped,
+                    "failed": total_failed,
+                }),
+            ));
+    }
+
+    // 2. Plan and trigger portfolio job
+    let timezone = deps.timezone.read().unwrap().clone();
+    if let Some(config) = plan_portfolio_job(events, &timezone) {
         tracing::info!(
             "Triggering portfolio job for accounts: {:?}, market_sync: {:?}",
             config.account_ids,
@@ -130,32 +206,6 @@ async fn process_event_batch(events: &[DomainEvent], deps: Arc<QueueWorkerDeps>)
         // Run the portfolio job directly (not spawned) so that is_processing
         // guard properly tracks completion and prevents concurrent jobs
         run_portfolio_job(deps.clone(), config).await;
-    }
-
-    // 2. Plan and trigger asset enrichment
-    let enrichment_assets = plan_asset_enrichment(events);
-    if !enrichment_assets.is_empty() {
-        tracing::info!(
-            "Triggering asset enrichment for {} asset(s)",
-            enrichment_assets.len()
-        );
-
-        let asset_service = deps.asset_service.clone();
-        tokio::spawn(async move {
-            match asset_service.enrich_assets(enrichment_assets).await {
-                Ok((enriched, skipped, failed)) => {
-                    tracing::info!(
-                        "Asset enrichment complete: {} enriched, {} skipped, {} failed",
-                        enriched,
-                        skipped,
-                        failed
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!("Asset enrichment failed: {}", e);
-                }
-            }
-        });
     }
 
     // 3. Plan and trigger broker sync
@@ -171,9 +221,17 @@ async fn process_event_batch(events: &[DomainEvent], deps: Arc<QueueWorkerDeps>)
         let connect_sync_service = deps.connect_sync_service.clone();
         let event_bus = deps.event_bus.clone();
         let secret_store = deps.secret_store.clone();
+        let token_lifecycle = deps.token_lifecycle.clone();
 
         tokio::spawn(async move {
-            match perform_broker_sync(connect_sync_service, event_bus, secret_store).await {
+            match perform_broker_sync(
+                connect_sync_service,
+                event_bus,
+                secret_store,
+                token_lifecycle,
+            )
+            .await
+            {
                 Ok(result) => {
                     tracing::info!(
                         "Broker sync completed after tracking mode change: success={}, message={}",
@@ -281,17 +339,11 @@ async fn run_portfolio_job(
 
     if !account_ids.is_empty() {
         let ids_slice = account_ids.as_slice();
-        let snapshot_result = if config.force_full_recalculation {
-            deps.snapshot_service
-                .force_recalculate_holdings_snapshots(Some(ids_slice))
-                .await
-        } else {
-            deps.snapshot_service
-                .calculate_holdings_snapshots(Some(ids_slice))
-                .await
-        };
-
-        if let Err(err) = snapshot_result {
+        if let Err(err) = deps
+            .snapshot_service
+            .recalculate_holdings_snapshots(Some(ids_slice), config.snapshot_mode.clone())
+            .await
+        {
             let err_msg = format!(
                 "Holdings snapshot calculation failed for targeted accounts: {}",
                 err
@@ -306,7 +358,7 @@ async fn run_portfolio_job(
 
     if let Err(err) = deps
         .snapshot_service
-        .calculate_total_portfolio_snapshots()
+        .recalculate_total_portfolio_snapshots(config.snapshot_mode)
         .await
     {
         let err_msg = format!("Failed to calculate TOTAL portfolio snapshot: {}", err);
@@ -352,7 +404,7 @@ async fn run_portfolio_job(
     for account_id in account_ids {
         if let Err(err) = deps
             .valuation_service
-            .calculate_valuation_history(&account_id, config.force_full_recalculation)
+            .calculate_valuation_history(&account_id, config.valuation_mode.clone())
             .await
         {
             let err_msg = format!(
@@ -374,30 +426,28 @@ async fn run_portfolio_job(
 // Broker Sync
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Default Supabase auth URL for token refresh
-const DEFAULT_SUPABASE_AUTH_URL: &str = "https://vvalcadcvxqwligwzxaw.supabase.co";
-
-/// Storage key for refresh token (without prefix - the SecretStore adds "wealthfolio_" prefix)
-const CLOUD_REFRESH_TOKEN_KEY: &str = "sync_refresh_token";
-
 fn cloud_api_base_url() -> String {
-    std::env::var("CONNECT_API_URL")
-        .ok()
-        .map(|v| v.trim().trim_end_matches('/').to_string())
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| wealthfolio_connect::DEFAULT_CLOUD_API_URL.to_string())
+    crate::features::cloud_api_base_url().unwrap_or_default()
 }
 
-fn supabase_auth_url() -> String {
+fn connect_auth_url() -> Option<String> {
     std::env::var("CONNECT_AUTH_URL")
         .ok()
         .map(|v| v.trim().trim_end_matches('/').to_string())
         .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| DEFAULT_SUPABASE_AUTH_URL.to_string())
+        .or_else(|| option_env!("CONNECT_AUTH_URL").map(|v| v.trim_end_matches('/').to_string()))
 }
 
-fn supabase_api_key() -> Option<String> {
-    std::env::var("CONNECT_AUTH_PUBLISHABLE_KEY").ok()
+fn connect_auth_api_key() -> Option<String> {
+    std::env::var("CONNECT_AUTH_PUBLISHABLE_KEY")
+        .ok()
+        .or_else(|| option_env!("CONNECT_AUTH_PUBLISHABLE_KEY").map(String::from))
+}
+
+fn token_lifecycle_config() -> Option<TokenLifecycleConfig> {
+    let auth_url = connect_auth_url()?;
+    let api_key = connect_auth_api_key()?;
+    Some(TokenLifecycleConfig::new(auth_url, api_key))
 }
 
 /// Progress reporter that publishes events to the EventBus for SSE delivery.
@@ -442,71 +492,14 @@ impl wealthfolio_connect::SyncProgressReporter for EventBusProgressReporter {
 }
 
 /// Mint a fresh access token using the stored refresh token.
-async fn mint_access_token(secret_store: &Arc<dyn SecretStore>) -> Result<String, String> {
-    // Get the stored refresh token
-    let refresh_token = secret_store
-        .get_secret(CLOUD_REFRESH_TOKEN_KEY)
-        .map_err(|e| format!("Failed to get refresh token: {}", e))?
-        .ok_or_else(|| "No refresh token configured. Please sign in first.".to_string())?;
-
-    // Get Supabase config
-    let auth_url = supabase_auth_url();
-    let api_key = supabase_api_key()
-        .ok_or_else(|| "CONNECT_AUTH_PUBLISHABLE_KEY not configured".to_string())?;
-
-    // Call Supabase token endpoint
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-
-    let token_url = format!("{}/auth/v1/token?grant_type=refresh_token", auth_url);
-    tracing::debug!("Refreshing access token from: {}", token_url);
-
-    let response = client
-        .post(&token_url)
-        .header("apikey", &api_key)
-        .header("Content-Type", "application/json")
-        .json(&serde_json::json!({ "refresh_token": refresh_token }))
-        .send()
+async fn mint_access_token(
+    secret_store: &Arc<dyn SecretStore>,
+    token_lifecycle: &TokenLifecycleState,
+) -> Result<String, String> {
+    let config = token_lifecycle_config();
+    ensure_valid_access_token(secret_store.as_ref(), token_lifecycle, config.as_ref())
         .await
-        .map_err(|e| format!("Failed to refresh token: {}", e))?;
-
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|e| format!("Failed to read response: {}", e))?;
-
-    if !status.is_success() {
-        #[derive(serde::Deserialize)]
-        struct SupabaseErrorResponse {
-            error: Option<String>,
-            error_description: Option<String>,
-        }
-
-        if let Ok(err) = serde_json::from_str::<SupabaseErrorResponse>(&body) {
-            let msg = err
-                .error_description
-                .or(err.error)
-                .unwrap_or_else(|| "Unknown error".to_string());
-            tracing::error!("Token refresh failed: {}", msg);
-            return Err(format!("Session expired. Please sign in again. ({})", msg));
-        }
-        tracing::error!("Token refresh failed with status {}: {}", status, body);
-        return Err("Session expired. Please sign in again.".to_string());
-    }
-
-    #[derive(serde::Deserialize)]
-    struct SupabaseTokenResponse {
-        access_token: String,
-    }
-
-    let token_response: SupabaseTokenResponse = serde_json::from_str(&body)
-        .map_err(|e| format!("Failed to parse token response: {}", e))?;
-
-    tracing::debug!("Access token refreshed successfully");
-    Ok(token_response.access_token)
+        .map_err(|e| e.to_string())
 }
 
 /// Core broker sync logic - syncs connections, accounts, and activities from cloud to local DB.
@@ -516,12 +509,22 @@ async fn perform_broker_sync(
     connect_sync_service: Arc<dyn BrokerSyncServiceTrait + Send + Sync>,
     event_bus: EventBus,
     secret_store: Arc<dyn SecretStore>,
+    token_lifecycle: Arc<TokenLifecycleState>,
 ) -> Result<wealthfolio_connect::SyncResult, String> {
     use wealthfolio_connect::{ConnectApiClient, SyncConfig, SyncOrchestrator};
 
+    if !crate::features::connect_sync_enabled() {
+        return Err("Connect sync feature is disabled in this build.".to_string());
+    }
+
     // Create API client with fresh access token
-    let token = mint_access_token(&secret_store).await?;
+    let token = mint_access_token(&secret_store, token_lifecycle.as_ref()).await?;
     let client = ConnectApiClient::new(&cloud_api_base_url(), &token).map_err(|e| e.to_string())?;
+
+    // Check plan entitlement before syncing
+    if !client.has_broker_sync().await.map_err(|e| e.to_string())? {
+        return Err("Plan does not include broker sync".to_string());
+    }
 
     // Create progress reporter and orchestrator
     let reporter = Arc::new(EventBusProgressReporter::new(event_bus));

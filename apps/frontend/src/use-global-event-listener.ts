@@ -1,32 +1,59 @@
 // useGlobalEventListener.ts
 import {
-  updatePortfolio,
-  listenMarketSyncComplete,
-  listenMarketSyncStart,
-  listenPortfolioUpdateComplete,
-  listenPortfolioUpdateError,
-  listenPortfolioUpdateStart,
-} from "@/adapters";
-import { usePortfolioSyncOptional } from "@/context/portfolio-sync-context";
-import { useIsMobileViewport } from "@/hooks/use-platform";
-import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
-import {
   isDesktop,
   listenBrokerSyncComplete,
   listenBrokerSyncError,
   listenDatabaseRestored,
+  listenMarketSyncComplete,
+  listenMarketSyncError,
+  listenMarketSyncStart,
+  listenPortfolioUpdateComplete,
+  listenPortfolioUpdateError,
+  listenPortfolioUpdateStart,
   logger,
+  updatePortfolio,
 } from "@/adapters";
+import { usePortfolioSyncOptional } from "@/context/portfolio-sync-context";
+import { useIsMobileViewport } from "@/hooks/use-platform";
+import { QueryKeys } from "@/lib/query-keys";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 const TOAST_IDS = {
   marketSyncStart: "market-sync-start",
   portfolioUpdateStart: "portfolio-update-start",
   portfolioUpdateError: "portfolio-update-error",
+
   brokerSyncStart: "broker-sync-start",
 } as const;
+
+const CLOUD_SYNC_INVALIDATION_EXCLUSIONS = new Set<string>([
+  QueryKeys.BROKER_CONNECTIONS,
+  QueryKeys.BROKER_ACCOUNTS,
+  QueryKeys.BROKER_SYNC_STATES,
+  QueryKeys.IMPORT_RUNS,
+  QueryKeys.USER_INFO,
+  QueryKeys.SUBSCRIPTION_PLANS,
+  QueryKeys.SUBSCRIPTION_PLANS_PUBLIC,
+  QueryKeys.SYNCED_ACCOUNTS,
+  QueryKeys.PLATFORMS,
+]);
+
+function shouldInvalidateAfterPortfolioUpdate(queryKey: readonly unknown[]): boolean {
+  const rootKey = queryKey[0];
+
+  if (typeof rootKey === "string" && CLOUD_SYNC_INVALIDATION_EXCLUSIONS.has(rootKey)) {
+    return false;
+  }
+
+  if (rootKey === "sync") {
+    return false;
+  }
+
+  return true;
+}
 
 const useGlobalEventListener = () => {
   const queryClient = useQueryClient();
@@ -76,24 +103,30 @@ const useGlobalEventListener = () => {
 
       // Show error toast on both mobile and desktop for failed syncs
       if (failed_syncs && failed_syncs.length > 0) {
-        const failedSymbols = failed_syncs.map(([symbol]) => symbol).join(", ");
-        toast.error("Market Data Update Incomplete", {
-          id: `market-sync-error-${failedSymbols || "unknown"}`,
-          description: `Unable to update market data for: ${failedSymbols}. This may affect your portfolio calculations and analytics. Please try again later.`,
-          duration: 15000,
+        const count = failed_syncs.length;
+        toast.error(`Price update failed for ${count} asset${count === 1 ? "" : "s"}`, {
+          id: "market-sync-error",
+          duration: 10000,
           action: {
-            label: "View Securities",
-            onClick: () => {
-              navigateRef.current("/settings/securities");
-            },
-          },
-          classNames: {
-            toast: "!flex-wrap",
-            content: "!flex-[1_0_calc(100%-2rem)]",
-            actionButton: "!ml-auto",
+            label: "View",
+            onClick: () => navigateRef.current("/health"),
           },
         });
       }
+    };
+
+    const handleMarketSyncError = (event: { payload: string }) => {
+      const errorMsg = event.payload || "Unknown error";
+      if (isMobileViewportRef.current && syncContextRef.current) {
+        syncContextRef.current.setIdle();
+      } else {
+        toast.dismiss(TOAST_IDS.marketSyncStart);
+      }
+      toast.error("Market Data Sync Failed", {
+        description: `${errorMsg}. Please try again later.`,
+        duration: 10000,
+      });
+      logger.error("Market sync error: " + errorMsg);
     };
 
     const handlePortfolioUpdateStart = () => {
@@ -128,7 +161,9 @@ const useGlobalEventListener = () => {
       } else {
         toast.dismiss(TOAST_IDS.portfolioUpdateStart);
       }
-      queryClientRef.current.invalidateQueries();
+      queryClientRef.current.invalidateQueries({
+        predicate: (query) => shouldInvalidateAfterPortfolioUpdate(query.queryKey),
+      });
     };
 
     const handleDatabaseRestored = () => {
@@ -251,6 +286,7 @@ const useGlobalEventListener = () => {
       });
       const unlistenMarketStart = await listenMarketSyncStart(handleMarketSyncStart);
       const unlistenMarketComplete = await listenMarketSyncComplete(handleMarketSyncComplete);
+      const unlistenMarketError = await listenMarketSyncError(handleMarketSyncError);
       const unlistenDatabaseRestored = await listenDatabaseRestored(handleDatabaseRestored);
       const unlistenBrokerSyncComplete = await listenBrokerSyncComplete(handleBrokerSyncComplete);
       const unlistenBrokerSyncError = await listenBrokerSyncError(handleBrokerSyncError);
@@ -261,6 +297,8 @@ const useGlobalEventListener = () => {
         unlistenPortfolioSyncError();
         unlistenMarketStart();
         unlistenMarketComplete();
+        unlistenMarketError();
+
         unlistenDatabaseRestored();
         unlistenBrokerSyncComplete();
         unlistenBrokerSyncError();

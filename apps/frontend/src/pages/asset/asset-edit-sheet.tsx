@@ -1,26 +1,33 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useForm, useFieldArray } from "react-hook-form";
-import { useQuery } from "@tanstack/react-query";
+import { getExchanges } from "@/adapters";
+import { MultiSelectTaxonomy } from "@/components/classification/multi-select-taxonomy";
+import { SingleSelectTaxonomy } from "@/components/classification/single-select-taxonomy";
+import { TickerAvatar } from "@/components/ticker-avatar";
+import { useMarketDataProviders } from "@/hooks/use-market-data-providers";
+import { useTaxonomies } from "@/hooks/use-taxonomies";
+import type { Asset, Quote } from "@/lib/types";
+import { formatAmount } from "@/lib/utils";
 import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
+import { useQuery } from "@tanstack/react-query";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  ResponsiveSelect,
-  type ResponsiveSelectOption,
-  SearchableSelect,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  Switch,
-  Label,
   Alert,
   AlertDescription,
   CurrencyInput,
+  Label,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  ResponsiveSelect,
+  type ResponsiveSelectOption,
+  SearchableSelect,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  Switch,
 } from "@wealthfolio/ui";
+import { Badge } from "@wealthfolio/ui/components/ui/badge";
+import { Button } from "@wealthfolio/ui/components/ui/button";
 import {
   Form,
   FormControl,
@@ -29,22 +36,21 @@ import {
   FormLabel,
   FormMessage,
 } from "@wealthfolio/ui/components/ui/form";
-import { Input } from "@wealthfolio/ui/components/ui/input";
-import { Textarea } from "@wealthfolio/ui/components/ui/textarea";
-import { Button } from "@wealthfolio/ui/components/ui/button";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@wealthfolio/ui/components/ui/tabs";
-import { Badge } from "@wealthfolio/ui/components/ui/badge";
+import { Input } from "@wealthfolio/ui/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@wealthfolio/ui/components/ui/select";
 import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
-import { TickerAvatar } from "@/components/ticker-avatar";
-import { SingleSelectTaxonomy } from "@/components/classification/single-select-taxonomy";
-import { MultiSelectTaxonomy } from "@/components/classification/multi-select-taxonomy";
-import { useTaxonomies } from "@/hooks/use-taxonomies";
-import { EDITABLE_ASSET_KINDS, ASSET_KIND_DISPLAY_NAMES, type AssetKind } from "@/lib/constants";
-import type { Asset, Quote } from "@/lib/types";
-import { formatAmount } from "@/lib/utils";
-import { getExchanges } from "@/adapters";
-import { useMarketDataProviders } from "@/hooks/use-market-data-providers";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@wealthfolio/ui/components/ui/tabs";
+import { Textarea } from "@wealthfolio/ui/components/ui/textarea";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useFieldArray, useForm } from "react-hook-form";
+import * as z from "zod";
 import { useAssetProfileMutations } from "./hooks/use-asset-profile-mutations";
 
 const PROVIDERS = [
@@ -81,7 +87,7 @@ type QuoteMode = (typeof QuoteMode)[keyof typeof QuoteMode];
 const assetFormSchema = z.object({
   name: z.string().optional(),
   notes: z.string().optional(),
-  kind: z.string().optional(),
+  instrumentType: z.string().optional(),
   quoteCcy: z.string().min(1, "Currency is required"),
   instrumentExchangeMic: z.string().optional(),
   quoteMode: z.enum([QuoteMode.MARKET, QuoteMode.MANUAL]),
@@ -94,11 +100,13 @@ type ProviderOverride = z.infer<typeof providerOverrideSchema>;
 
 const normalizeMic = (mic?: string | null): string => mic?.trim().toUpperCase() ?? "";
 
-// Convert asset kind options from constants
-const kindOptions: ResponsiveSelectOption[] = EDITABLE_ASSET_KINDS.map((kind) => ({
-  label: ASSET_KIND_DISPLAY_NAMES[kind],
-  value: kind,
-}));
+const EDIT_INSTRUMENT_TYPE_OPTIONS = [
+  { value: "EQUITY", label: "Equity (Stock, ETF, Fund)" },
+  { value: "CRYPTO", label: "Cryptocurrency" },
+  { value: "BOND", label: "Bond" },
+  { value: "OPTION", label: "Option" },
+  { value: "METAL", label: "Precious Metal" },
+] as const;
 
 // Parse provider overrides from config JSON (supports nested and flat formats)
 function parseProviderOverrides(
@@ -155,7 +163,7 @@ function serializeProviderConfig(
   return result;
 }
 
-type EditTab = "general" | "classification" | "market-data";
+type EditTab = "general" | "classification" | "market-data" | "fx-settings";
 
 // Extracted component for pricing mode toggle with controlled popover
 // Uses "Automatic Updates" toggle: ON = automatic, OFF = manual (more intuitive)
@@ -300,7 +308,7 @@ export function AssetEditSheet({
     defaultValues: {
       name: asset?.name ?? "",
       notes: asset?.notes ?? "",
-      kind: asset?.kind ?? "INVESTMENT",
+      instrumentType: asset?.instrumentType ?? "",
       quoteCcy: asset?.quoteCcy ?? "",
       instrumentExchangeMic: normalizeMic(asset?.instrumentExchangeMic),
       quoteMode: asset?.quoteMode === "MANUAL" ? QuoteMode.MANUAL : QuoteMode.MARKET,
@@ -328,7 +336,7 @@ export function AssetEditSheet({
       form.reset({
         name: asset.name ?? "",
         notes: asset.notes ?? "",
-        kind: asset.kind ?? "INVESTMENT",
+        instrumentType: asset.instrumentType ?? "",
         quoteCcy: asset.quoteCcy ?? "",
         instrumentExchangeMic: normalizeMic(asset.instrumentExchangeMic),
         quoteMode: asset.quoteMode === "MANUAL" ? QuoteMode.MANUAL : QuoteMode.MARKET,
@@ -354,11 +362,10 @@ export function AssetEditSheet({
       if (!asset) return;
 
       // Serialize provider config to nested JSON format
-      const assetKind = values.kind ?? asset.kind ?? "INVESTMENT";
       const serializedOverrides = serializeProviderConfig(
         values.preferredProvider,
         values.providerConfig ?? [],
-        assetKind,
+        asset.kind ?? "INVESTMENT",
       );
       const normalizedMic = normalizeMic(values.instrumentExchangeMic);
 
@@ -369,7 +376,7 @@ export function AssetEditSheet({
           displayCode: asset.displayCode,
           name: values.name || "",
           notes: values.notes ?? "",
-          kind: values.kind as AssetKind | undefined,
+          instrumentType: values.instrumentType || null,
           quoteMode: values.quoteMode,
           quoteCcy: values.quoteCcy,
           instrumentExchangeMic: normalizedMic || null,
@@ -395,7 +402,7 @@ export function AssetEditSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex h-full w-full flex-col sm:max-w-2xl">
+      <SheetContent side="right" className="pb-safe flex h-full w-full flex-col sm:max-w-2xl">
         <SheetHeader className="shrink-0 pb-4">
           <div className="flex items-center gap-3">
             <TickerAvatar symbol={asset.displayCode ?? ""} className="size-10" />
@@ -415,139 +422,225 @@ export function AssetEditSheet({
           onValueChange={(v) => setActiveTab(v as EditTab)}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="classification">Classification</TabsTrigger>
-            <TabsTrigger value="market-data">Market Data</TabsTrigger>
-          </TabsList>
+          {asset.kind === "FX" ? (
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="general">General</TabsTrigger>
+              <TabsTrigger value="market-data">Market Data</TabsTrigger>
+            </TabsList>
+          ) : (
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="general" className="px-1.5 text-xs sm:px-3 sm:text-sm">
+                General
+              </TabsTrigger>
+              <TabsTrigger value="classification" className="px-1.5 text-xs sm:px-3 sm:text-sm">
+                Classification
+              </TabsTrigger>
+              <TabsTrigger value="market-data" className="px-1.5 text-xs sm:px-3 sm:text-sm">
+                Market Data
+              </TabsTrigger>
+            </TabsList>
+          )}
 
           <div className="min-h-0 flex-1 overflow-y-auto pt-4">
             {/* General Tab */}
             <TabsContent value="general" className="mt-0 h-full">
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(handleSave)} className="space-y-6">
-                  {/* Symbol (read-only) and Currency */}
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Symbol</label>
-                      <Input value={asset.displayCode ?? ""} disabled className="bg-muted/50" />
+                  {/* FX: Base and Quote Currency (both disabled) */}
+                  {asset.kind === "FX" ? (
+                    <div className="space-y-6">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Base Currency</label>
+                          <Input
+                            value={asset.instrumentSymbol ?? ""}
+                            disabled
+                            className="bg-muted/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Quote Currency</label>
+                          <Input value={asset.quoteCcy ?? ""} disabled className="bg-muted/50" />
+                        </div>
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name="name"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Name</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Asset display name" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="notes"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Notes</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                rows={6}
+                                placeholder="Add any context or links"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="flex justify-end gap-3 pt-4">
+                        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                          Cancel
+                        </Button>
+                        <Button type="submit" disabled={isSaving}>
+                          {isSaving ? "Saving..." : "Save Changes"}
+                        </Button>
+                      </div>
                     </div>
-                    <FormField
-                      control={form.control}
-                      name="quoteCcy"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Currency</FormLabel>
-                          <FormControl>
-                            <CurrencyInput
-                              value={field.value}
-                              onChange={field.onChange}
-                              placeholder="Select currency"
-                              valueDisplay="code"
-                              allowCustom
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+                  ) : (
+                    /* Regular assets: Symbol, Currency, Name, Notes, Asset Type, Exchange */
+                    <div className="space-y-6">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Symbol</label>
+                          <Input value={asset.displayCode ?? ""} disabled className="bg-muted/50" />
+                        </div>
+                        <FormField
+                          control={form.control}
+                          name="quoteCcy"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Currency</FormLabel>
+                              <FormControl>
+                                <CurrencyInput
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                  placeholder="Select currency"
+                                  valueDisplay="code"
+                                  allowCustom
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
 
-                  {/* Editable fields */}
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Name</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Asset display name" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                      {/* Editable fields */}
+                      <FormField
+                        control={form.control}
+                        name="name"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Name</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Asset display name" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                  <FormField
-                    control={form.control}
-                    name="notes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Notes</FormLabel>
-                        <FormControl>
-                          <Textarea rows={10} placeholder="Add any context or links" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                      <FormField
+                        control={form.control}
+                        name="notes"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Notes</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                rows={10}
+                                placeholder="Add any context or links"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                  {/* Asset Type and Exchange */}
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <FormField
-                      control={form.control}
-                      name="kind"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Asset Type</FormLabel>
-                          <FormControl>
-                            <ResponsiveSelect
-                              value={field.value ?? "INVESTMENT"}
-                              onValueChange={field.onChange}
-                              options={kindOptions}
-                              placeholder="Select type"
-                              sheetTitle="Asset Type"
-                              sheetDescription="Select the type of asset"
-                              disabled={isSystemManagedKind}
-                              triggerClassName="h-11"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                      {/* Instrument Type and Exchange */}
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <FormField
+                          control={form.control}
+                          name="instrumentType"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Instrument Type</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value ?? ""}
+                                disabled={isSystemManagedKind}
+                              >
+                                <FormControl>
+                                  <SelectTrigger className="h-11">
+                                    <SelectValue placeholder="Select type" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {EDIT_INSTRUMENT_TYPE_OPTIONS.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
 
-                    <FormField
-                      control={form.control}
-                      name="instrumentExchangeMic"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Exchange</FormLabel>
-                          <FormControl>
-                            <SearchableSelect
-                              options={exchangeOptions}
-                              value={field.value ?? ""}
-                              onValueChange={field.onChange}
-                              placeholder="Select exchange"
-                              searchPlaceholder="Search exchanges..."
-                              className="h-11"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+                        <FormField
+                          control={form.control}
+                          name="instrumentExchangeMic"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Exchange</FormLabel>
+                              <FormControl>
+                                <SearchableSelect
+                                  options={exchangeOptions}
+                                  value={field.value ?? ""}
+                                  onValueChange={field.onChange}
+                                  placeholder="Select exchange"
+                                  searchPlaceholder="Search exchanges..."
+                                  className="h-11"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
 
-                  <div className="flex justify-end gap-3 pt-4">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => onOpenChange(false)}
-                      disabled={isSaving}
-                    >
-                      Cancel
-                    </Button>
-                    <Button type="submit" disabled={isSaving}>
-                      {isSaving ? (
-                        <span className="flex items-center gap-2">
-                          <Icons.Spinner className="h-4 w-4 animate-spin" /> Saving
-                        </span>
-                      ) : (
-                        "Save changes"
-                      )}
-                    </Button>
-                  </div>
+                      <div className="flex justify-end gap-3 pt-4">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => onOpenChange(false)}
+                          disabled={isSaving}
+                        >
+                          Cancel
+                        </Button>
+                        <Button type="submit" disabled={isSaving}>
+                          {isSaving ? (
+                            <span className="flex items-center gap-2">
+                              <Icons.Spinner className="h-4 w-4 animate-spin" /> Saving
+                            </span>
+                          ) : (
+                            "Save changes"
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </form>
               </Form>
             </TabsContent>
@@ -812,6 +905,17 @@ export function AssetEditSheet({
             </TabsContent>
           </div>
         </Tabs>
+
+        <div className="mt-auto border-t pt-4 sm:hidden">
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            onClick={() => onOpenChange(false)}
+          >
+            Close
+          </Button>
+        </div>
       </SheetContent>
     </Sheet>
   );

@@ -100,7 +100,7 @@ pub mod test_env {
         },
         secrets::SecretStore,
         settings::{Settings, SettingsServiceTrait, SettingsUpdate},
-        valuation::{DailyAccountValuation, ValuationServiceTrait},
+        valuation::{DailyAccountValuation, ValuationRecalcMode, ValuationServiceTrait},
         Error as CoreError, Result as CoreResult,
     };
 
@@ -269,6 +269,7 @@ pub mod test_env {
             _needs_review_filter: Option<bool>,
             _date_from: Option<chrono::NaiveDate>,
             _date_to: Option<chrono::NaiveDate>,
+            _instrument_type_filter: Option<Vec<String>>,
         ) -> CoreResult<ActivitySearchResponse> {
             Ok(ActivitySearchResponse {
                 data: self.activities.clone(),
@@ -351,12 +352,28 @@ pub mod test_env {
             wealthfolio_core::activities::parse_csv(content, config)
         }
 
-        async fn prepare_activities(
+        async fn prepare_activities_for_save(
             &self,
             _activities: Vec<NewActivity>,
             _account: &Account,
         ) -> CoreResult<wealthfolio_core::activities::PrepareActivitiesResult> {
-            unimplemented!("MockActivityService::prepare_activities")
+            unimplemented!("MockActivityService::prepare_activities_for_save")
+        }
+
+        async fn prepare_activities_for_import(
+            &self,
+            _activities: Vec<NewActivity>,
+            _account: &Account,
+        ) -> CoreResult<wealthfolio_core::activities::PrepareActivitiesResult> {
+            unimplemented!("MockActivityService::prepare_activities_for_import")
+        }
+
+        async fn prepare_activities_for_sync(
+            &self,
+            _activities: Vec<NewActivity>,
+            _account: &Account,
+        ) -> CoreResult<wealthfolio_core::activities::PrepareActivitiesResult> {
+            unimplemented!("MockActivityService::prepare_activities_for_sync")
         }
 
         async fn upsert_activities_bulk(
@@ -437,7 +454,7 @@ pub mod test_env {
         async fn calculate_valuation_history(
             &self,
             _account_id: &str,
-            _force_full_recalc: bool,
+            _mode: ValuationRecalcMode,
         ) -> CoreResult<()> {
             Ok(())
         }
@@ -885,6 +902,10 @@ pub mod test_env {
 
         fn get_sync_states_with_errors(&self) -> CoreResult<Vec<QuoteSyncState>> {
             Ok(Vec::new())
+        }
+
+        async fn reset_sync_errors(&self, _asset_ids: &[String]) -> CoreResult<()> {
+            Ok(())
         }
 
         async fn get_providers_info(&self) -> CoreResult<Vec<ProviderInfo>> {

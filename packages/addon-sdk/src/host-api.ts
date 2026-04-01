@@ -15,6 +15,7 @@ import type {
   ActivitySearchResponse,
   ActivityUpdate,
   AccountValuation,
+  CheckSnapshotImportResult,
   ImportActivitiesResult,
   Asset,
   ContributionLimit,
@@ -31,6 +32,10 @@ import type {
   Quote,
   Settings,
   SimplePerformanceMetrics,
+  SnapshotHoldingInput,
+  SnapshotImportResult,
+  SnapshotInfo,
+  SnapshotInput,
   SymbolSearchResult,
   UpdateAssetProfile,
 } from './data-types';
@@ -202,6 +207,14 @@ export interface ActivitiesAPI {
 }
 
 /**
+ * A single dividend event returned by Yahoo Finance.
+ */
+export interface YahooDividend {
+  amount: number;
+  date: number; // unix seconds
+}
+
+/**
  * Market data and asset APIs
  */
 export interface MarketDataAPI {
@@ -236,6 +249,13 @@ export interface MarketDataAPI {
    * @returns Promise resolving to array of provider info
    */
   getProviders(): Promise<MarketDataProviderInfo[]>;
+
+  /**
+   * Fetch dividend history for a symbol from Yahoo Finance.
+   * @param symbol Ticker symbol
+   * @returns Promise resolving to array of dividend events
+   */
+  fetchDividends(symbol: string): Promise<YahooDividend[]>;
 }
 
 /**
@@ -435,7 +455,7 @@ export interface SettingsAPI {
    * @param settingsUpdate Updated settings data
    * @returns Promise resolving to updated settings
    */
-  update(settingsUpdate: Settings): Promise<Settings>;
+  update(settingsUpdate: Partial<Settings>): Promise<Settings>;
 
   /**
    * Create database backup
@@ -621,6 +641,36 @@ export interface NavigationAPI {
 }
 
 /**
+ * Toast notification APIs
+ * Allows addons to show toast notifications using the host application's toast system
+ */
+export interface ToastAPI {
+  /**
+   * Show a success toast
+   * @param message Message to display
+   */
+  success(message: string): void;
+
+  /**
+   * Show an error toast
+   * @param message Message to display
+   */
+  error(message: string): void;
+
+  /**
+   * Show a warning toast
+   * @param message Message to display
+   */
+  warning(message: string): void;
+
+  /**
+   * Show an info toast
+   * @param message Message to display
+   */
+  info(message: string): void;
+}
+
+/**
  * Query management APIs for React Query integration
  */
 export interface QueryAPI {
@@ -641,6 +691,30 @@ export interface QueryAPI {
    * @param queryKey The query key to refetch
    */
   refetchQueries(queryKey: string | string[]): void;
+}
+
+/**
+ * Snapshot management APIs
+ * For accounts using HOLDINGS tracking mode
+ */
+export interface SnapshotsAPI {
+  getAll(accountId: string, dateFrom?: string, dateTo?: string): Promise<SnapshotInfo[]>;
+  getByDate(accountId: string, date: string): Promise<Holding[]>;
+  save(
+    accountId: string,
+    holdings: SnapshotHoldingInput[],
+    cashBalances: Record<string, string>,
+    snapshotDate?: string,
+  ): Promise<void>;
+  checkImport(
+    accountId: string,
+    snapshots: SnapshotInput[],
+  ): Promise<CheckSnapshotImportResult>;
+  importSnapshots(
+    accountId: string,
+    snapshots: SnapshotInput[],
+  ): Promise<SnapshotImportResult>;
+  delete(accountId: string, date: string): Promise<void>;
 }
 
 /**
@@ -684,6 +758,9 @@ export interface HostAPI {
   /** File operations */
   files: FilesAPI;
 
+  /** Snapshot management for HOLDINGS mode accounts */
+  snapshots: SnapshotsAPI;
+
   /** Secrets management */
   secrets: SecretsAPI;
 
@@ -698,4 +775,7 @@ export interface HostAPI {
 
   /** React Query operations */
   query: QueryAPI;
+
+  /** Toast notification operations */
+  toast: ToastAPI;
 }

@@ -18,7 +18,9 @@ mod updater;
 use std::sync::Arc;
 
 use dotenvy::dotenv;
-use log::{error, warn};
+use log::error;
+#[cfg(feature = "device-sync")]
+use log::warn;
 use tauri::{AppHandle, Emitter, Manager};
 
 use events::emit_app_ready;
@@ -54,7 +56,6 @@ mod desktop {
     /// Initializes desktop-specific plugins.
     pub fn init_plugins(handle: &AppHandle) {
         let _ = handle.plugin(tauri_plugin_updater::Builder::new().build());
-        let _ = handle.plugin(tauri_plugin_window_state::Builder::new().build());
     }
 
     /// Performs synchronous setup on desktop: initializes context, menu, and registers listeners.
@@ -97,7 +98,8 @@ mod desktop {
         });
 
         // Start background device sync engine (self-skips when device is not READY).
-        if crate::services::is_connect_configured() {
+        #[cfg(feature = "device-sync")]
+        {
             let device_sync_context = Arc::clone(&context);
             tauri::async_runtime::spawn(async move {
                 if let Err(err) = crate::commands::device_sync::ensure_background_engine_started(
@@ -131,6 +133,7 @@ mod mobile {
         #[cfg(target_os = "ios")]
         {
             let _ = handle.plugin(tauri_plugin_web_auth::init());
+            let _ = handle.plugin(tauri_plugin_mobile_share::init());
         }
     }
 
@@ -183,7 +186,21 @@ fn get_app_data_dir(handle: &AppHandle) -> Result<String, Box<dyn std::error::Er
 pub fn run() {
     dotenv().ok();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // Single-instance must be the first plugin registered (per Tauri docs).
+    // With the "deep-link" feature, it automatically forwards deep link URLs
+    // to the existing instance's on_open_url handler instead of spawning a new process.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        // Focus the existing window when a second instance is attempted
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+    }));
+
+    let builder = builder
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(if cfg!(debug_assertions) {
@@ -201,7 +218,12 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_deep_link::init());
+
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+
+    builder
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -222,7 +244,7 @@ pub fn run() {
             let deep_link_handle = handle.clone();
             app.deep_link().on_open_url(move |event| {
                 let urls = event.urls();
-                log::info!("Deep link received: {:?}", urls);
+                log::debug!("Deep link received (count: {})", urls.len());
                 for url in urls {
                     let _ = deep_link_handle.emit("deep-link-received", url.to_string());
                 }
@@ -312,6 +334,7 @@ pub fn run() {
             commands::asset::update_asset_profile,
             commands::asset::update_quote_mode,
             commands::asset::delete_asset,
+            commands::asset::create_asset,
             // Alternative asset commands
             commands::alternative_assets::create_alternative_asset,
             commands::alternative_assets::update_alternative_asset_valuation,
@@ -335,6 +358,7 @@ pub fn run() {
             commands::market_data::check_quotes_import,
             commands::market_data::import_quotes_csv,
             commands::market_data::get_exchanges,
+            commands::market_data::fetch_yahoo_dividends,
             // Taxonomy commands
             commands::taxonomy::get_taxonomies,
             commands::taxonomy::get_taxonomy,
@@ -397,67 +421,147 @@ pub fn run() {
             commands::addon::clear_addon_staging,
             commands::addon::submit_addon_rating,
             // Sync commands
+            #[cfg(any(feature = "connect-sync", feature = "device-sync"))]
             commands::wealthfolio_connect::store_sync_session,
+            #[cfg(any(feature = "connect-sync", feature = "device-sync"))]
             commands::wealthfolio_connect::clear_sync_session,
+            #[cfg(any(feature = "connect-sync", feature = "device-sync"))]
+            commands::wealthfolio_connect::restore_sync_session,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::sync_broker_data,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::broker_ingest_run,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::get_synced_accounts,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::get_platforms,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::list_broker_connections,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::list_broker_accounts,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::get_subscription_plans,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::get_subscription_plans_public,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::get_user_info,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::get_broker_sync_states,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::get_broker_ingest_states,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::get_import_runs,
+            #[cfg(feature = "connect-sync")]
             commands::brokers_sync::get_data_import_runs,
             // Device sync commands
+            #[cfg(feature = "device-sync")]
             commands::device_sync::enroll_device,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::get_device,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::list_devices,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::update_device,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::delete_device,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::revoke_device,
             // Team keys (E2EE)
+            #[cfg(feature = "device-sync")]
             commands::device_sync::initialize_team_keys,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::commit_initialize_team_keys,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::rotate_team_keys,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::commit_rotate_team_keys,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::reset_team_sync,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::device_sync_bootstrap_snapshot_if_needed,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::device_sync_engine_status,
+            #[cfg(feature = "device-sync")]
+            commands::device_sync::device_sync_pairing_source_status,
+            #[cfg(feature = "device-sync")]
+            commands::device_sync::device_sync_bootstrap_overwrite_check,
+            #[cfg(feature = "device-sync")]
+            commands::device_sync::device_sync_reconcile_ready_state,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::device_sync_trigger_cycle,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::device_sync_start_background_engine,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::device_sync_stop_background_engine,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::device_sync_generate_snapshot_now,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::device_sync_cancel_snapshot_upload,
             // Pairing (Issuer - Trusted Device)
+            #[cfg(feature = "device-sync")]
             commands::device_sync::create_pairing,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::get_pairing,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::approve_pairing,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::complete_pairing,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::cancel_pairing,
             // Pairing (Claimer - New Device)
+            #[cfg(feature = "device-sync")]
             commands::device_sync::claim_pairing,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::get_pairing_messages,
+            #[cfg(feature = "device-sync")]
             commands::device_sync::confirm_pairing,
+            // Composite pairing endpoints
+            #[cfg(feature = "device-sync")]
+            commands::device_sync::complete_pairing_with_transfer,
+            #[cfg(feature = "device-sync")]
+            commands::device_sync::confirm_pairing_with_bootstrap,
+            // Pairing flow coordinator
+            #[cfg(feature = "device-sync")]
+            commands::device_sync::begin_pairing_confirm,
+            #[cfg(feature = "device-sync")]
+            commands::device_sync::get_pairing_flow_state,
+            #[cfg(feature = "device-sync")]
+            commands::device_sync::approve_pairing_overwrite,
+            #[cfg(feature = "device-sync")]
+            commands::device_sync::cancel_pairing_flow,
             // Device enroll service (high-level commands)
+            #[cfg(feature = "device-sync")]
             commands::device_enroll_service::get_device_sync_state,
+            #[cfg(feature = "device-sync")]
             commands::device_enroll_service::enable_device_sync,
+            #[cfg(feature = "device-sync")]
             commands::device_enroll_service::clear_device_sync_data,
+            #[cfg(feature = "device-sync")]
             commands::device_enroll_service::reinitialize_device_sync,
             // Sync crypto commands
+            #[cfg(feature = "device-sync")]
             commands::sync_crypto::sync_generate_root_key,
+            #[cfg(feature = "device-sync")]
             commands::sync_crypto::sync_derive_dek,
+            #[cfg(feature = "device-sync")]
             commands::sync_crypto::sync_generate_keypair,
+            #[cfg(feature = "device-sync")]
             commands::sync_crypto::sync_compute_shared_secret,
+            #[cfg(feature = "device-sync")]
             commands::sync_crypto::sync_derive_session_key,
+            #[cfg(feature = "device-sync")]
             commands::sync_crypto::sync_encrypt,
+            #[cfg(feature = "device-sync")]
             commands::sync_crypto::sync_decrypt,
+            #[cfg(feature = "device-sync")]
             commands::sync_crypto::sync_generate_pairing_code,
+            #[cfg(feature = "device-sync")]
             commands::sync_crypto::sync_hash_pairing_code,
+            #[cfg(feature = "device-sync")]
+            commands::sync_crypto::sync_hmac_sha256,
+            #[cfg(feature = "device-sync")]
             commands::sync_crypto::sync_compute_sas,
+            #[cfg(feature = "device-sync")]
             commands::sync_crypto::sync_generate_device_id,
             // Health commands
             commands::health::get_health_status,
@@ -471,13 +575,14 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("Failed to build Wealthfolio application")
-        .run(|handle, event| {
+        .run(|_handle, event| {
             #[cfg(desktop)]
             if matches!(
                 event,
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
-                if let Some(context) = handle.try_state::<Arc<context::ServiceContext>>() {
+                #[cfg(feature = "device-sync")]
+                if let Some(context) = _handle.try_state::<Arc<context::ServiceContext>>() {
                     let context = Arc::clone(context.inner());
                     tauri::async_runtime::block_on(async move {
                         if let Err(err) =

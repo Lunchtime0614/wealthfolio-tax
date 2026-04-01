@@ -561,6 +561,10 @@ impl QuoteServiceTrait for MockMarketDataRepository {
         Ok(Vec::new())
     }
 
+    async fn reset_sync_errors(&self, _asset_ids: &[String]) -> Result<()> {
+        Ok(())
+    }
+
     // =========================================================================
     // Provider Settings
     // =========================================================================
@@ -753,7 +757,11 @@ impl ValuationRepositoryTrait for MockValuationRepository {
         Ok(latest)
     }
 
-    async fn delete_valuations_for_account(&self, _account_id: &str) -> Result<()> {
+    async fn delete_valuations_for_account(
+        &self,
+        _account_id: &str,
+        _since_date: Option<NaiveDate>,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -860,6 +868,7 @@ fn create_test_position(
         created_at: Utc::now(),
         last_updated: Utc::now(),
         is_alternative: false,
+        contract_multiplier: Decimal::ONE,
     }
 }
 

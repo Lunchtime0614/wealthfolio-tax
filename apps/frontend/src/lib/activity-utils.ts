@@ -1,7 +1,12 @@
-import { ActivityType, INCOME_ACTIVITY_TYPES, SYMBOL_REQUIRED_TYPES } from "./constants";
+import {
+  ActivityType,
+  DECIMAL_PRECISION,
+  INCOME_ACTIVITY_TYPES,
+  SYMBOL_REQUIRED_TYPES,
+} from "./constants";
 import { ActivityDetails } from "./types";
 
-const roundCurrency = (value: number, precision = 6) => {
+const roundCurrency = (value: number, precision = DECIMAL_PRECISION) => {
   if (!Number.isFinite(value)) {
     return 0;
   }
@@ -68,6 +73,42 @@ export const isCashTransfer = (activityType: string, assetSymbol: string): boole
   return false;
 };
 
+const isCanonicalCashIdentifier = (identifier: string): boolean => {
+  const upper = identifier.toUpperCase();
+  if (upper === "CASH") {
+    return true;
+  }
+  if (upper.startsWith("CASH:")) {
+    const currency = upper.slice("CASH:".length);
+    return /^[A-Z]{3}$/.test(currency);
+  }
+  return false;
+};
+
+/**
+ * Income activities can still be asset-backed (e.g. in-kind staking rewards).
+ * Returns true when an income activity carries a non-cash asset identifier.
+ */
+export const isAssetBackedIncomeActivity = (
+  activityType: string,
+  assetSymbol?: string,
+  assetId?: string,
+): boolean => {
+  if (!isIncomeActivity(activityType)) {
+    return false;
+  }
+
+  const identifiers = [assetSymbol, assetId]
+    .map((value) => value?.trim() ?? "")
+    .filter((value) => value.length > 0);
+
+  if (identifiers.length === 0) {
+    return false;
+  }
+
+  return identifiers.some((value) => !isCashSymbol(value) && !isCanonicalCashIdentifier(value));
+};
+
 // Helper to check if activity is a trade type
 export const isTradeActivity = (type: string): boolean => {
   return type === ActivityType.BUY || type === ActivityType.SELL;
@@ -86,6 +127,37 @@ export const isTaxActivity = (activityType: string): boolean => {
 // Helper to check if activity is a split type
 export const isSplitActivity = (activityType: string): boolean => {
   return activityType === ActivityType.SPLIT;
+};
+
+// Format a split ratio stored as a decimal multiplier into a human-readable ratio string.
+// Uses rational approximation to find the simplest N:D form.
+// e.g. 2 → "2:1", 0.2 → "1:5", 0.3 → "3:10", 1.5 → "3:2"
+export const formatSplitRatio = (amount: number): string => {
+  if (!amount || amount <= 0) return "0:1";
+
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+
+  // Find the best rational approximation N/D ≈ amount with D ≤ maxDenom
+  const toFraction = (x: number, maxDenom = 1000): [number, number] => {
+    let bestN = 1,
+      bestD = 1,
+      minErr = Infinity;
+    for (let d = 1; d <= maxDenom; d++) {
+      const n = Math.round(x * d);
+      const err = Math.abs(x - n / d);
+      if (err < minErr) {
+        minErr = err;
+        bestN = n;
+        bestD = d;
+      }
+      if (err < 1e-9) break;
+    }
+    const g = gcd(bestN, bestD);
+    return [bestN / g, bestD / g];
+  };
+
+  const [n, d] = toFraction(amount);
+  return `${n}:${d}`;
 };
 
 /**

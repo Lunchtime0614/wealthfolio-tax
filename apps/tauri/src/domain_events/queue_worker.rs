@@ -13,12 +13,18 @@ use tokio::sync::mpsc;
 use wealthfolio_core::constants::PORTFOLIO_TOTAL_ACCOUNT_ID;
 use wealthfolio_core::events::DomainEvent;
 use wealthfolio_core::health::HealthServiceTrait;
+use wealthfolio_core::portfolio::snapshot::SnapshotRecalcMode;
+use wealthfolio_core::portfolio::valuation::ValuationRecalcMode;
 
-use super::planner::{plan_asset_enrichment, plan_broker_sync, plan_portfolio_job};
+#[cfg(feature = "connect-sync")]
+use super::planner::plan_broker_sync;
+use super::planner::{plan_asset_enrichment, plan_portfolio_job};
+#[cfg(feature = "connect-sync")]
 use crate::commands::brokers_sync::perform_broker_sync;
 use crate::context::ServiceContext;
 use crate::events::{
-    MarketSyncResult, PortfolioRequestPayload, MARKET_SYNC_COMPLETE, MARKET_SYNC_ERROR,
+    MarketSyncResult, PortfolioRequestPayload, ASSET_ENRICHMENT_COMPLETE,
+    ASSET_ENRICHMENT_PROGRESS, ASSET_ENRICHMENT_START, MARKET_SYNC_COMPLETE, MARKET_SYNC_ERROR,
     MARKET_SYNC_START, PORTFOLIO_UPDATE_COMPLETE, PORTFOLIO_UPDATE_ERROR, PORTFOLIO_UPDATE_START,
 };
 
@@ -92,6 +98,10 @@ pub async fn event_queue_worker(
 }
 
 /// Processes a batch of domain events by planning and triggering actions.
+///
+/// Enrichment runs FIRST (awaited) so that bond metadata, instrument type, etc.
+/// are available before the portfolio job tries to sync quotes and calculate
+/// snapshots. This matches the server queue_worker ordering.
 async fn process_event_batch(
     events: &[DomainEvent],
     app_handle: &AppHandle,
@@ -103,64 +113,122 @@ async fn process_event_batch(
 
     info!("Processing batch of {} domain events", events.len());
 
-    // Plan and run portfolio job directly (not via event emission)
-    // This ensures the is_processing guard properly tracks completion
-    if let Some(payload) = plan_portfolio_job(events) {
-        info!(
-            "Running portfolio job (accounts: {:?})",
-            payload.account_ids
-        );
-        run_portfolio_job(app_handle, context, payload).await;
-    }
-
-    // Plan and run asset enrichment (spawned as background task)
+    // 1. Plan and run asset enrichment FIRST so that bond metadata (coupon rate,
+    //    maturity date, etc.) is available before the portfolio job tries to
+    //    sync quotes and calculate snapshots.
     let enrichment_asset_ids = plan_asset_enrichment(events);
     if !enrichment_asset_ids.is_empty() {
         info!(
-            "Triggering asset enrichment for {} assets",
+            "Triggering asset enrichment for {} asset(s)",
             enrichment_asset_ids.len()
         );
-        let asset_service = context.asset_service();
-        tokio::spawn(async move {
-            match asset_service.enrich_assets(enrichment_asset_ids).await {
-                Ok((enriched, skipped, failed)) => {
-                    info!(
-                        "Asset enrichment complete: {} enriched, {} skipped, {} failed",
-                        enriched, skipped, failed
-                    );
-                }
-                Err(e) => {
-                    warn!("Asset enrichment failed: {}", e);
-                }
-            }
-        });
-    }
 
-    // Plan and trigger broker sync for eligible tracking mode changes
-    let sync_account_ids = plan_broker_sync(events);
-    if !sync_account_ids.is_empty() {
-        info!(
-            "Triggering broker sync for {} accounts (tracking mode changed)",
-            sync_account_ids.len()
+        let total = enrichment_asset_ids.len();
+        let _ = app_handle.emit(
+            ASSET_ENRICHMENT_START,
+            serde_json::json!({ "total": total }),
         );
 
-        // Spawn broker sync as a background task
-        let context_clone = context.clone();
-        let app_handle_clone = app_handle.clone();
+        let asset_service = context.asset_service();
+        let mut total_enriched: usize = 0;
+        let mut total_skipped: usize = 0;
+        let mut total_failed: usize = 0;
 
-        tokio::spawn(async move {
-            match perform_broker_sync(&context_clone, Some(&app_handle_clone)).await {
-                Ok(result) => {
-                    info!(
-                        "Broker sync completed after tracking mode change: success={}, message={}",
-                        result.success, result.message
-                    );
+        let chunk_size = 5;
+
+        for chunk in enrichment_asset_ids.chunks(chunk_size) {
+            match tokio::time::timeout(
+                Duration::from_secs(30),
+                asset_service.enrich_assets(chunk.to_vec()),
+            )
+            .await
+            {
+                Ok(Ok((enriched, skipped, failed))) => {
+                    total_enriched += enriched;
+                    total_skipped += skipped;
+                    total_failed += failed;
                 }
-                Err(e) => {
-                    warn!("Broker sync failed after tracking mode change: {}", e);
+                Ok(Err(e)) => {
+                    warn!("Asset enrichment chunk failed: {}", e);
+                    total_failed += chunk.len();
+                }
+                Err(_) => {
+                    warn!(
+                        "Asset enrichment chunk timed out ({} asset(s))",
+                        chunk.len()
+                    );
+                    total_failed += chunk.len();
                 }
             }
-        });
+
+            let completed = total_enriched + total_skipped + total_failed;
+            let _ = app_handle.emit(
+                ASSET_ENRICHMENT_PROGRESS,
+                serde_json::json!({
+                    "completed": completed,
+                    "total": total,
+                }),
+            );
+        }
+
+        let _ = app_handle.emit(
+            ASSET_ENRICHMENT_COMPLETE,
+            serde_json::json!({
+                "enriched": total_enriched,
+                "skipped": total_skipped,
+                "failed": total_failed,
+            }),
+        );
+    }
+
+    // 2. Plan and run portfolio job directly (not via event emission)
+    // This ensures the is_processing guard properly tracks completion
+    let timezone = context.get_timezone();
+    if let Some(payload) = plan_portfolio_job(events, &timezone) {
+        run_portfolio_job(app_handle, context, payload).await;
+    }
+
+    #[cfg(feature = "connect-sync")]
+    {
+        // 3. Plan and trigger broker sync for eligible tracking mode changes
+        let sync_account_ids = plan_broker_sync(events);
+        if !sync_account_ids.is_empty() {
+            // Check plan entitlement before syncing
+            match context.connect_service().has_broker_sync().await {
+                Ok(true) => {}
+                Ok(false) => {
+                    info!("Broker sync skipped after tracking mode change: plan does not include broker sync");
+                    return;
+                }
+                Err(e) => {
+                    warn!("Broker sync skipped after tracking mode change: could not verify entitlement ({})", e);
+                    return;
+                }
+            }
+
+            info!(
+                "Triggering broker sync for {} accounts (tracking mode changed)",
+                sync_account_ids.len()
+            );
+
+            // Spawn broker sync as a background task
+            let context_clone = context.clone();
+            let app_handle_clone = app_handle.clone();
+
+            tokio::spawn(async move {
+                match perform_broker_sync(&context_clone, Some(&app_handle_clone)).await {
+                    Ok(result) => {
+                        info!(
+                            "Broker sync completed after tracking mode change: success={}, message={}",
+                            result.success, result.message
+                        );
+                    }
+                    Err(e) => {
+                        warn!("Broker sync failed after tracking mode change: {}", e);
+                    }
+                }
+            });
+        }
     }
 }
 
@@ -175,8 +243,14 @@ async fn run_portfolio_job(
 ) {
     let market_sync_mode = payload.market_sync_mode.clone();
     let accounts_to_recalc = payload.account_ids.clone();
-    // Domain events always trigger force full recalculation
-    let force_recalc = true;
+    let snapshot_mode = match payload.since_date {
+        Some(date) => SnapshotRecalcMode::SinceDate(date),
+        None => SnapshotRecalcMode::Full,
+    };
+    let valuation_mode = match payload.since_date {
+        Some(date) => ValuationRecalcMode::SinceDate(date),
+        None => ValuationRecalcMode::Full,
+    };
 
     // Only perform market sync if the mode requires it
     if market_sync_mode.requires_sync() {
@@ -223,8 +297,14 @@ async fn run_portfolio_job(
                 }
 
                 // Continue to portfolio calculation
-                run_portfolio_calculation(app_handle, context, accounts_to_recalc, force_recalc)
-                    .await;
+                run_portfolio_calculation(
+                    app_handle,
+                    context,
+                    accounts_to_recalc,
+                    snapshot_mode,
+                    valuation_mode,
+                )
+                .await;
             }
             Err(e) => {
                 if let Err(e_emit) = app_handle.emit(MARKET_SYNC_ERROR, &e.to_string()) {
@@ -239,7 +319,14 @@ async fn run_portfolio_job(
     } else {
         // MarketSyncMode::None - skip market sync, just recalculate
         debug!("Skipping market sync (MarketSyncMode::None)");
-        run_portfolio_calculation(app_handle, context, accounts_to_recalc, force_recalc).await;
+        run_portfolio_calculation(
+            app_handle,
+            context,
+            accounts_to_recalc,
+            snapshot_mode,
+            valuation_mode,
+        )
+        .await;
     }
 }
 
@@ -248,7 +335,8 @@ async fn run_portfolio_calculation(
     app_handle: &AppHandle,
     context: &Arc<ServiceContext>,
     account_ids: Option<Vec<String>>,
-    force_full_recalculation: bool,
+    snapshot_mode: SnapshotRecalcMode,
+    valuation_mode: ValuationRecalcMode,
 ) {
     // Emit start event
     if let Err(e) = app_handle.emit(PORTFOLIO_UPDATE_START, &()) {
@@ -270,10 +358,8 @@ async fn run_portfolio_calculation(
     // - If specific account_ids provided: process those accounts (even if archived)
     // - Otherwise: process all non-archived accounts
     let mut account_ids_vec: Vec<String> = if let Some(ref target_ids) = account_ids {
-        // Process the specific requested accounts (even if archived, for their own snapshots)
         target_ids.clone()
     } else {
-        // No specific accounts requested - use non-archived accounts
         accounts_for_total.iter().map(|a| a.id.clone()).collect()
     };
 
@@ -282,17 +368,10 @@ async fn run_portfolio_calculation(
         let ids_slice = account_ids_vec.as_slice();
         let snapshot_service = context.snapshot_service();
 
-        let snapshot_result = if force_full_recalculation {
-            snapshot_service
-                .force_recalculate_holdings_snapshots(Some(ids_slice))
-                .await
-        } else {
-            snapshot_service
-                .calculate_holdings_snapshots(Some(ids_slice))
-                .await
-        };
-
-        if let Err(err) = snapshot_result {
+        if let Err(err) = snapshot_service
+            .recalculate_holdings_snapshots(Some(ids_slice), snapshot_mode.clone())
+            .await
+        {
             let err_msg = format!(
                 "Holdings snapshot calculation failed for targeted accounts: {}",
                 err
@@ -304,14 +383,10 @@ async fn run_portfolio_calculation(
 
     // Calculate total portfolio snapshots
     let snapshot_service = context.snapshot_service();
-    let total_result = if force_full_recalculation {
-        snapshot_service
-            .force_recalculate_total_portfolio_snapshots()
-            .await
-    } else {
-        snapshot_service.calculate_total_portfolio_snapshots().await
-    };
-    if let Err(err) = total_result {
+    if let Err(err) = snapshot_service
+        .recalculate_total_portfolio_snapshots(snapshot_mode)
+        .await
+    {
         let err_msg = format!("Failed to calculate TOTAL portfolio snapshot: {}", err);
         error!("{}", err_msg);
         let _ = app_handle.emit(PORTFOLIO_UPDATE_ERROR, &err_msg);
@@ -353,7 +428,7 @@ async fn run_portfolio_calculation(
     let valuation_service = context.valuation_service();
     for account_id in account_ids_vec {
         if let Err(err) = valuation_service
-            .calculate_valuation_history(&account_id, force_full_recalculation)
+            .calculate_valuation_history(&account_id, valuation_mode.clone())
             .await
         {
             let err_msg = format!(

@@ -4,14 +4,14 @@ use crate::errors::{CalculatorError, Error as CoreError, Result};
 use crate::fx::currency::{get_normalization_rule, normalize_currency_code};
 use crate::portfolio::holdings::holdings_model::{Holding, HoldingType, Instrument, MonetaryValue};
 use crate::portfolio::snapshot::{self, SnapshotServiceTrait};
-use crate::utils::time_utils::valuation_date_today;
+use crate::utils::time_utils::{parse_user_timezone_or_default, user_today};
 use async_trait::async_trait;
 use log::{debug, error, warn};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use super::HoldingsValuationServiceTrait;
 
@@ -41,6 +41,7 @@ pub struct HoldingsService {
     snapshot_service: Arc<dyn SnapshotServiceTrait>,
     valuation_service: Arc<dyn HoldingsValuationServiceTrait>,
     classification_service: Arc<AssetClassificationService>,
+    timezone: Arc<RwLock<String>>,
 }
 
 struct AssetInfo {
@@ -57,12 +58,34 @@ impl HoldingsService {
         valuation_service: Arc<dyn HoldingsValuationServiceTrait>,
         classification_service: Arc<AssetClassificationService>,
     ) -> Self {
+        Self::new_with_timezone(
+            asset_service,
+            snapshot_service,
+            valuation_service,
+            classification_service,
+            Arc::new(RwLock::new(String::new())),
+        )
+    }
+
+    pub fn new_with_timezone(
+        asset_service: Arc<dyn AssetServiceTrait>,
+        snapshot_service: Arc<dyn SnapshotServiceTrait>,
+        valuation_service: Arc<dyn HoldingsValuationServiceTrait>,
+        classification_service: Arc<AssetClassificationService>,
+        timezone: Arc<RwLock<String>>,
+    ) -> Self {
         Self {
             asset_service,
             snapshot_service,
             valuation_service,
             classification_service,
+            timezone,
         }
+    }
+
+    fn today_in_user_timezone(&self) -> chrono::NaiveDate {
+        let tz = parse_user_timezone_or_default(&self.timezone.read().unwrap());
+        user_today(tz)
     }
 
     async fn build_live_holdings_from_snapshot(
@@ -72,7 +95,7 @@ impl HoldingsService {
         base_currency: &str,
         lots_asset_id: Option<&str>,
     ) -> Vec<Holding> {
-        let today = valuation_date_today();
+        let today = self.today_in_user_timezone();
         let snapshot_positions: Vec<snapshot::Position> = latest_snapshot
             .positions
             .values()
@@ -159,6 +182,7 @@ impl HoldingsService {
                 quantity: snapshot_pos.quantity,
                 open_date: Some(snapshot_pos.inception_date),
                 lots: include_lots.then(|| snapshot_pos.lots.clone()),
+                contract_multiplier: snapshot_pos.contract_multiplier,
                 local_currency: snapshot_pos.currency.clone(),
                 base_currency: base_currency.to_string(),
                 fx_rate: None,
@@ -210,6 +234,7 @@ impl HoldingsService {
                 quantity: amount,
                 open_date: None,
                 lots: None,
+                contract_multiplier: Decimal::ONE,
                 local_currency: currency.clone(),
                 base_currency: base_currency.to_string(),
                 fx_rate: None,
@@ -393,6 +418,24 @@ impl HoldingsServiceTrait for HoldingsService {
             .await;
         apply_portfolio_weights(account_id, &mut holdings);
 
+        // Load taxonomy classifications for all holdings
+        let asset_ids: Vec<String> = holdings
+            .iter()
+            .filter_map(|h| h.instrument.as_ref().map(|i| i.id.clone()))
+            .collect();
+        if !asset_ids.is_empty() {
+            let classifications_map = self
+                .classification_service
+                .get_classifications_batch(&asset_ids);
+            for holding in &mut holdings {
+                if let Some(ref mut instrument) = holding.instrument {
+                    if let Some(classifications) = classifications_map.get(&instrument.id) {
+                        instrument.classifications = Some(classifications.clone());
+                    }
+                }
+            }
+        }
+
         for holding_view in &mut holdings {
             normalize_holding_currency(holding_view);
         }
@@ -567,6 +610,7 @@ impl HoldingsServiceTrait for HoldingsService {
                 quantity: position.quantity,
                 open_date: Some(position.inception_date),
                 lots: None,
+                contract_multiplier: position.contract_multiplier,
                 local_currency: position.currency.clone(),
                 base_currency: base_currency.to_string(),
                 fx_rate: None,
@@ -608,6 +652,7 @@ impl HoldingsServiceTrait for HoldingsService {
                 quantity: amount,
                 open_date: None,
                 lots: None,
+                contract_multiplier: Decimal::ONE,
                 local_currency: currency.clone(),
                 base_currency: base_currency.to_string(),
                 fx_rate: None,
@@ -644,6 +689,7 @@ impl HoldingsServiceTrait for HoldingsService {
 #[cfg(test)]
 mod tests {
     use crate::snapshot::Lot;
+    use crate::utils::time_utils::valuation_date_today;
 
     use super::*;
     use chrono::Utc;
@@ -681,6 +727,7 @@ mod tests {
                 acquisition_fees: dec!(0),
                 fx_rate_to_position: None,
             }])),
+            contract_multiplier: Decimal::ONE,
             local_currency: "GBp".to_string(),
             base_currency: "GBP".to_string(),
             fx_rate: Some(dec!(0.01)),
@@ -755,6 +802,7 @@ mod tests {
             quantity: dec!(1000),
             open_date: None,
             lots: None,
+            contract_multiplier: Decimal::ONE,
             local_currency: "GBp".to_string(),
             base_currency: "GBP".to_string(),
             fx_rate: Some(dec!(0.01)),

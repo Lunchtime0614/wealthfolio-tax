@@ -6,7 +6,7 @@ use log::debug;
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
-use crate::assets::{AssetKind, AssetMetadata, AssetServiceTrait};
+use crate::assets::{AssetKind, AssetMetadata, AssetServiceTrait, QuoteMode};
 use crate::errors::Result;
 use crate::events::{DomainEvent, DomainEventSink, NoOpDomainEventSink};
 use crate::fx::FxServiceTrait;
@@ -110,7 +110,7 @@ impl ManualSnapshotService {
                 ..Default::default()
             };
 
-            let quote_mode_hint = match holding.data_source.as_deref() {
+            let quote_mode = match holding.data_source.as_deref() {
                 Some("MANUAL") => Some("MANUAL".to_string()),
                 _ => None,
             };
@@ -121,12 +121,12 @@ impl ManualSnapshotService {
                     &asset_id,
                     Some(holding.currency.clone()),
                     Some(metadata),
-                    quote_mode_hint.clone(),
+                    quote_mode.clone(),
                 )
                 .await?;
 
-            // For MANUAL data source: update quote mode on existing assets and create a price quote
-            if let Some(ref mode) = quote_mode_hint {
+            // Update quote mode on existing assets if MANUAL data source specified
+            if let Some(ref mode) = quote_mode {
                 let requested_mode = mode.to_uppercase();
                 let current_mode = asset.quote_mode.as_db_str();
                 if requested_mode != current_mode {
@@ -134,16 +134,24 @@ impl ManualSnapshotService {
                         .update_quote_mode_silent(&asset.id, &requested_mode)
                         .await?;
                 }
+            }
 
-                if requested_mode == "MANUAL" && !holding.average_cost.is_zero() {
-                    self.create_manual_quote(
-                        &asset.id,
-                        holding.average_cost,
-                        &holding.currency,
-                        request.snapshot_date,
-                    )
-                    .await;
-                }
+            // Create a quote from the snapshot price as a fallback
+            if !holding.average_cost.is_zero() {
+                let is_manual = asset.quote_mode == QuoteMode::Manual || quote_mode.is_some();
+                let source = if is_manual {
+                    DataSource::Manual
+                } else {
+                    DataSource::Broker
+                };
+                self.create_quote_from_snapshot(
+                    &asset.id,
+                    holding.average_cost,
+                    &holding.currency,
+                    request.snapshot_date,
+                    source,
+                )
+                .await;
             }
 
             asset_ids.push(asset.id.clone());
@@ -175,6 +183,7 @@ impl ManualSnapshotService {
                 created_at: Utc::now(),
                 last_updated: Utc::now(),
                 is_alternative: false,
+                contract_multiplier: Decimal::ONE,
             };
             positions.insert(asset.id, position);
         }
@@ -238,17 +247,28 @@ impl ManualSnapshotService {
         Ok(asset_ids)
     }
 
-    /// Creates a manual quote for a custom asset, matching the activity creation flow.
-    async fn create_manual_quote(
+    /// Creates a quote from snapshot data to serve as a price fallback.
+    /// Uses `DataSource::Manual` for MANUAL-mode assets, `DataSource::Broker` for others.
+    async fn create_quote_from_snapshot(
         &self,
         asset_id: &str,
         price: Decimal,
         currency: &str,
         date: NaiveDate,
+        data_source: DataSource,
     ) {
         let timestamp = Utc.from_utc_datetime(&date.and_hms_opt(12, 0, 0).unwrap());
-        let date_part = timestamp.format("%Y%m%d").to_string();
-        let quote_id = format!("{}_{}", date_part, asset_id.to_uppercase());
+
+        let quote_id = match data_source {
+            DataSource::Manual => {
+                let date_part = timestamp.format("%Y%m%d").to_string();
+                format!("{}_{}", date_part, asset_id.to_uppercase())
+            }
+            _ => {
+                let date_str = timestamp.format("%Y-%m-%d").to_string();
+                format!("{}_{}_{}", asset_id, date_str, data_source.as_str())
+            }
+        };
 
         let quote = Quote {
             id: quote_id,
@@ -261,7 +281,7 @@ impl ManualSnapshotService {
             adjclose: price,
             volume: Decimal::ZERO,
             currency: currency.to_string(),
-            data_source: DataSource::Manual,
+            data_source,
             created_at: Utc::now(),
             notes: None,
         };
@@ -269,15 +289,12 @@ impl ManualSnapshotService {
         match self.quote_service.update_quote(quote).await {
             Ok(_) => {
                 debug!(
-                    "Created manual quote for asset {} on {} at price {}",
+                    "Created quote for asset {} on {} at price {}",
                     asset_id, date, price
                 );
             }
             Err(e) => {
-                debug!(
-                    "Failed to create manual quote for asset {}: {}",
-                    asset_id, e
-                );
+                debug!("Failed to create quote for asset {}: {}", asset_id, e);
             }
         }
     }

@@ -23,6 +23,7 @@ import { QueryKeys } from "@/lib/query-keys";
 import { generateId } from "@/lib/id";
 import { AI_THREADS_KEY } from "./use-threads";
 import { deleteAiThread, getAiThreadMessages, updateAiThread } from "@/adapters";
+import { useHapticFeedback } from "@/hooks";
 
 function deriveInitialThreadTitle(firstUserMessage: string): string {
   const normalized = firstUserMessage.replace(/\s+/g, " ").trim();
@@ -383,8 +384,15 @@ export function useChatRuntime(config?: ChatModelConfig) {
   // Thread ID ref - persists across streaming calls
   const threadIdRef = useRef<string | null>(null);
 
+  // Parent message ID ref - set during edit to truncate AI context
+  const editParentIdRef = useRef<string | null>(null);
+
   // Abort controller for cancelling streams
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Haptic feedback for streaming start
+  const { triggerHapticPattern } = useHapticFeedback();
+  const hapticTriggeredRef = useRef(false);
 
   const setCurrentThreadId = useCallback((threadId: string | null) => {
     threadIdRef.current = threadId;
@@ -552,6 +560,7 @@ export function useChatRuntime(config?: ChatModelConfig) {
             content: contentForAi,
             config,
             threadId: threadIdRef.current ?? undefined,
+            parentMessageId: editParentIdRef.current ?? undefined,
           },
           signal,
         )) {
@@ -622,6 +631,11 @@ export function useChatRuntime(config?: ChatModelConfig) {
             }
 
             case "textDelta":
+              // Trigger haptic pattern when streaming starts (first text delta)
+              if (!hapticTriggeredRef.current) {
+                hapticTriggeredRef.current = true;
+                triggerHapticPattern(3, 80);
+              }
               // Append to existing text part or create new one
               if (textPartIndex !== null) {
                 const part = streamParts[textPartIndex];
@@ -735,6 +749,20 @@ export function useChatRuntime(config?: ChatModelConfig) {
     abortControllerRef.current?.abort();
   }, []);
 
+  // Handle message edit - truncate history to parent, then re-run
+  const handleEdit = useCallback(
+    async (message: AppendMessage) => {
+      setMessages((prev) => {
+        const parentIndex = prev.findIndex((m) => m.id === message.parentId);
+        return parentIndex >= 0 ? prev.slice(0, parentIndex + 1) : [];
+      });
+      editParentIdRef.current = message.parentId ?? null;
+      await handleNew(message);
+      editParentIdRef.current = null;
+    },
+    [handleNew],
+  );
+
   const handleSwitchToNewThread = useCallback(async () => {
     await handleCancel();
     setCurrentThreadId(null);
@@ -808,6 +836,7 @@ export function useChatRuntime(config?: ChatModelConfig) {
       setMessages: handleSetMessages,
       convertMessage,
       onNew: handleNew,
+      onEdit: handleEdit,
       onCancel: handleCancel,
       adapters: {
         attachments: csvAttachmentAdapter,
@@ -827,6 +856,7 @@ export function useChatRuntime(config?: ChatModelConfig) {
       messages,
       handleSetMessages,
       handleNew,
+      handleEdit,
       handleCancel,
       currentThreadId,
       isThreadListLoading,

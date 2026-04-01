@@ -18,6 +18,9 @@ pub const DATA_SOURCE_MARKET_DATA_APP: &str = "MARKETDATA_APP";
 pub const DATA_SOURCE_ALPHA_VANTAGE: &str = "ALPHA_VANTAGE";
 pub const DATA_SOURCE_METAL_PRICE_API: &str = "METAL_PRICE_API";
 pub const DATA_SOURCE_FINNHUB: &str = "FINNHUB";
+pub const DATA_SOURCE_US_TREASURY_CALC: &str = "US_TREASURY_CALC";
+pub const DATA_SOURCE_BOERSE_FRANKFURT: &str = "BOERSE_FRANKFURT";
+pub const DATA_SOURCE_BROKER: &str = "BROKER";
 
 // =============================================================================
 // Data Source
@@ -43,6 +46,14 @@ pub enum DataSource {
     MetalPriceApi,
     /// Finnhub - global stock data with real-time quotes
     Finnhub,
+    /// US Treasury bond price calculator
+    #[serde(rename = "US_TREASURY_CALC")]
+    UsTreasuryCalc,
+    /// Börse Frankfurt - European bond pricing
+    #[serde(rename = "BOERSE_FRANKFURT")]
+    BoerseFrankfurt,
+    /// Broker-provided price from position sync
+    Broker,
     /// Manual entry by user
     #[default]
     Manual,
@@ -57,6 +68,9 @@ impl DataSource {
             DataSource::AlphaVantage => DATA_SOURCE_ALPHA_VANTAGE,
             DataSource::MetalPriceApi => DATA_SOURCE_METAL_PRICE_API,
             DataSource::Finnhub => DATA_SOURCE_FINNHUB,
+            DataSource::UsTreasuryCalc => DATA_SOURCE_US_TREASURY_CALC,
+            DataSource::BoerseFrankfurt => DATA_SOURCE_BOERSE_FRANKFURT,
+            DataSource::Broker => DATA_SOURCE_BROKER,
             DataSource::Manual => DATA_SOURCE_MANUAL,
         }
     }
@@ -76,6 +90,9 @@ impl From<&str> for DataSource {
             DATA_SOURCE_ALPHA_VANTAGE => DataSource::AlphaVantage,
             DATA_SOURCE_METAL_PRICE_API => DataSource::MetalPriceApi,
             DATA_SOURCE_FINNHUB => DataSource::Finnhub,
+            DATA_SOURCE_US_TREASURY_CALC => DataSource::UsTreasuryCalc,
+            DATA_SOURCE_BOERSE_FRANKFURT => DataSource::BoerseFrankfurt,
+            DATA_SOURCE_BROKER => DataSource::Broker,
             _ => DataSource::Manual,
         }
     }

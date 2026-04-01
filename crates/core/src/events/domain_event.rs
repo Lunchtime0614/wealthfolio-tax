@@ -1,5 +1,6 @@
 //! Domain event types.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::accounts::TrackingMode;
@@ -18,6 +19,9 @@ pub enum DomainEvent {
         asset_ids: Vec<String>,
         /// Currencies observed in affected activities (for FX sync planning)
         currencies: Vec<String>,
+        /// Earliest affected activity timestamp in UTC, if known.
+        /// Runtime planners convert this to a local business date using the current timezone.
+        earliest_activity_at_utc: Option<DateTime<Utc>>,
     },
 
     /// Holdings snapshots were created or updated.
@@ -61,6 +65,10 @@ pub enum DomainEvent {
     /// Manual snapshot was saved (manual entry, CSV import, broker import).
     /// Triggers portfolio recalculation for the affected account.
     ManualSnapshotSaved { account_id: String },
+
+    /// Device sync pulled changes from another device.
+    /// Triggers full portfolio recalculation for all accounts.
+    DeviceSyncPullComplete,
 }
 
 /// Represents a currency change on an account for FX sync planning.
@@ -77,11 +85,13 @@ impl DomainEvent {
         account_ids: Vec<String>,
         asset_ids: Vec<String>,
         currencies: Vec<String>,
+        earliest_activity_at_utc: Option<DateTime<Utc>>,
     ) -> Self {
         Self::ActivitiesChanged {
             account_ids,
             asset_ids,
             currencies,
+            earliest_activity_at_utc,
         }
     }
 
@@ -142,18 +152,27 @@ impl DomainEvent {
     pub fn manual_snapshot_saved(account_id: String) -> Self {
         Self::ManualSnapshotSaved { account_id }
     }
+
+    /// Creates a DeviceSyncPullComplete event.
+    /// Triggers full portfolio recalculation for all accounts.
+    pub fn device_sync_pull_complete() -> Self {
+        Self::DeviceSyncPullComplete
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     #[test]
     fn test_domain_event_serialization() {
+        let timestamp = Utc.with_ymd_and_hms(2024, 6, 15, 14, 30, 0).unwrap();
         let event = DomainEvent::activities_changed(
             vec!["acc1".to_string()],
             vec!["AAPL".to_string()],
             vec!["USD".to_string()],
+            Some(timestamp),
         );
 
         let json = serde_json::to_string(&event).unwrap();
@@ -165,10 +184,12 @@ mod tests {
                 account_ids,
                 asset_ids,
                 currencies,
+                earliest_activity_at_utc,
             } => {
                 assert_eq!(account_ids, vec!["acc1"]);
                 assert_eq!(asset_ids, vec!["AAPL"]);
                 assert_eq!(currencies, vec!["USD"]);
+                assert_eq!(earliest_activity_at_utc, Some(timestamp));
             }
             _ => panic!("Expected ActivitiesChanged"),
         }
@@ -215,5 +236,15 @@ mod tests {
             }
             _ => panic!("Expected AssetsUpdated"),
         }
+    }
+
+    #[test]
+    fn test_device_sync_pull_complete_serialization() {
+        let event = DomainEvent::device_sync_pull_complete();
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("device_sync_pull_complete"));
+
+        let deserialized: DomainEvent = serde_json::from_str(&json).unwrap();
+        assert!(matches!(deserialized, DomainEvent::DeviceSyncPullComplete));
     }
 }

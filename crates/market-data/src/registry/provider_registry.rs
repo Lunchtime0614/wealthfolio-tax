@@ -12,13 +12,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use log::{debug, info, warn};
+use log::{debug, warn};
 
 use super::{
     CircuitBreaker, FetchDiagnostics, QuoteValidator, RateLimitConfig, RateLimiter, SkipReason,
 };
 use crate::errors::{MarketDataError, RetryClass};
-use crate::models::{AssetProfile, InstrumentId, ProviderId, Quote, QuoteContext, SearchResult};
+use crate::models::{
+    AssetProfile, InstrumentId, ProviderId, Quote, QuoteContext, SearchResult, SplitEvent,
+};
 use crate::provider::MarketDataProvider;
 use crate::resolver::SymbolResolver;
 
@@ -370,6 +372,43 @@ impl ProviderRegistry {
         Err(last_error.unwrap_or(MarketDataError::AllProvidersFailed))
     }
 
+    /// Fetch split history for an instrument.
+    ///
+    /// Tries providers in order. Returns empty vec (not error) if no provider supports splits.
+    pub async fn fetch_splits(
+        &self,
+        context: &QuoteContext,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Vec<SplitEvent> {
+        let providers = self.ordered_providers(context, true);
+
+        for provider in providers {
+            let provider_id: ProviderId = Cow::Borrowed(provider.id());
+
+            let resolved = match self.resolver.resolve(&provider_id, context) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+
+            self.rate_limiter.acquire(&provider_id).await;
+
+            match provider
+                .get_splits(context, resolved.instrument, start, end)
+                .await
+            {
+                Ok(splits) => return splits,
+                Err(MarketDataError::NotSupported { .. }) => continue,
+                Err(e) => {
+                    warn!("Split fetch failed for provider '{}': {:?}", provider_id, e);
+                    continue;
+                }
+            }
+        }
+
+        vec![]
+    }
+
     /// Get providers ordered by preference for the given context.
     ///
     /// Orders providers by:
@@ -536,6 +575,7 @@ impl ProviderRegistry {
         }
 
         let mut last_error: Option<MarketDataError> = None;
+        let mut fallback_results: Option<Vec<SearchResult>> = None;
 
         for provider in providers {
             let provider_id: ProviderId = Cow::Borrowed(provider.id());
@@ -550,7 +590,14 @@ impl ProviderRegistry {
             match provider.search(query).await {
                 Ok(results) if !results.is_empty() => {
                     self.circuit_breaker.record_success(&provider_id);
-                    return Ok(results);
+                    // If any result has MIC, return immediately
+                    if results.iter().any(|r| r.exchange_mic.is_some())
+                        || fallback_results.is_some()
+                    {
+                        return Ok(results);
+                    }
+                    // Save as fallback, try next provider for MIC-enriched results
+                    fallback_results = Some(results);
                 }
                 Ok(_) => {
                     debug!(
@@ -576,6 +623,10 @@ impl ProviderRegistry {
                     last_error = Some(e);
                 }
             }
+        }
+
+        if let Some(results) = fallback_results {
+            return Ok(results);
         }
 
         Err(last_error.unwrap_or(MarketDataError::AllProvidersFailed))
@@ -734,11 +785,6 @@ impl ProviderRegistry {
                     }
 
                     diagnostics.record_success(provider_id);
-                    info!(
-                        "Successfully fetched {} valid quotes. Diagnostics: {}",
-                        valid_quotes.len(),
-                        diagnostics.summary()
-                    );
                     return (Ok(valid_quotes), diagnostics);
                 }
                 Err(e) => {
@@ -1005,6 +1051,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: None,
+            bond_metadata: None,
         };
 
         let ordered = registry.ordered_providers(&context, true);
@@ -1033,6 +1080,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: Some(Cow::Borrowed("PROVIDER_C")),
+            bond_metadata: None,
         };
 
         let ordered = registry.ordered_providers(&context, true);
@@ -1104,6 +1152,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: None,
+            bond_metadata: None,
         };
 
         let equity_providers = registry.ordered_providers(&equity_context, true);
@@ -1119,6 +1168,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: None,
+            bond_metadata: None,
         };
 
         let crypto_providers = registry.ordered_providers(&crypto_context, true);
@@ -1180,6 +1230,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: None,
+            bond_metadata: None,
         };
         assert_eq!(registry.ordered_providers(&us_context, true).len(), 1);
 
@@ -1192,6 +1243,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: None,
+            bond_metadata: None,
         };
         assert_eq!(registry.ordered_providers(&ca_context, true).len(), 0);
 
@@ -1204,6 +1256,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: None,
+            bond_metadata: None,
         };
         assert_eq!(registry.ordered_providers(&unknown_context, true).len(), 0);
     }
@@ -1233,6 +1286,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: None,
+            bond_metadata: None,
         };
 
         let ordered = registry.ordered_providers(&context, true);
@@ -1269,6 +1323,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: Some(Cow::Borrowed("PROVIDER_C")),
+            bond_metadata: None,
         };
 
         let ordered = registry.ordered_providers(&context, true);

@@ -1,32 +1,36 @@
 // Broker / Connect Commands
-import type { Account, Platform } from "@/lib/types";
 import type {
-  BrokerConnection,
-  BrokerAccount,
-  PlansResponse,
-  UserInfo,
-  BrokerSyncState,
-  ImportRun,
-} from "@/features/wealthfolio-connect/types";
-import type {
-  Device,
-  CreatePairingResponse,
-  GetPairingResponse,
   ClaimPairingResponse,
-  PairingMessagesResponse,
+  CompletePairingResponse,
   ConfirmPairingResponse,
-  SuccessResponse,
+  CreatePairingResponse,
+  Device,
+  GetPairingResponse,
+  PairingMessagesResponse,
   ResetTeamSyncResponse,
+  SuccessResponse,
 } from "@/features/devices-sync/types";
 import type {
-  ImportRunsRequest,
-  BackendSyncStateResult,
+  BrokerAccount,
+  BrokerConnection,
+  BrokerSyncState,
+  ImportRun,
+  PlansResponse,
+  UserInfo,
+} from "@/features/wealthfolio-connect/types";
+import type { Account, Platform } from "@/lib/types";
+import type {
   BackendEnableSyncResult,
-  BackendSyncEngineStatusResult,
+  BackendSyncBackgroundEngineResult,
+  BackendSyncBootstrapOverwriteCheckResult,
   BackendSyncBootstrapResult,
   BackendSyncCycleResult,
-  BackendSyncBackgroundEngineResult,
+  BackendSyncEngineStatusResult,
+  BackendSyncPairingSourceStatusResult,
+  BackendSyncReconcileReadyResult,
   BackendSyncSnapshotUploadResult,
+  BackendSyncStateResult,
+  ImportRunsRequest,
 } from "../types";
 
 import { invoke } from "./platform";
@@ -101,6 +105,25 @@ export const reinitializeDeviceSync = async (): Promise<BackendEnableSyncResult>
 
 export const getSyncEngineStatus = async (): Promise<BackendSyncEngineStatusResult> => {
   return invoke<BackendSyncEngineStatusResult>("device_sync_engine_status");
+};
+
+export const getPairingSourceStatus = async (): Promise<BackendSyncPairingSourceStatusResult> => {
+  return invoke<BackendSyncPairingSourceStatusResult>("device_sync_pairing_source_status");
+};
+
+export const deviceSyncBootstrapOverwriteCheck =
+  async (): Promise<BackendSyncBootstrapOverwriteCheckResult> => {
+    return invoke<BackendSyncBootstrapOverwriteCheckResult>(
+      "device_sync_bootstrap_overwrite_check",
+    );
+  };
+
+export const deviceSyncReconcileReadyState = async (
+  allowOverwrite = false,
+): Promise<BackendSyncReconcileReadyResult> => {
+  return invoke<BackendSyncReconcileReadyResult>("device_sync_reconcile_ready_state", {
+    allowOverwrite,
+  });
 };
 
 export const syncBootstrapSnapshotIfNeeded = async (): Promise<BackendSyncBootstrapResult> => {
@@ -179,8 +202,8 @@ export const completePairing = async (
   encryptedKeyBundle: string,
   sasProof: string | Record<string, unknown>,
   signature: string,
-): Promise<SuccessResponse> => {
-  return invoke<SuccessResponse>("complete_pairing", {
+): Promise<CompletePairingResponse> => {
+  return invoke<CompletePairingResponse>("complete_pairing", {
     pairingId,
     encryptedKeyBundle,
     sasProof,
@@ -207,19 +230,105 @@ export const getPairingMessages = async (pairingId: string): Promise<PairingMess
 export const confirmPairing = async (
   pairingId: string,
   proof?: string,
+  minSnapshotCreatedAt?: string,
 ): Promise<ConfirmPairingResponse> => {
-  return invoke<ConfirmPairingResponse>("confirm_pairing", { pairingId, proof });
+  return invoke<ConfirmPairingResponse>("confirm_pairing", {
+    pairingId,
+    proof,
+    minSnapshotCreatedAt,
+  });
+};
+
+// ============================================================================
+// Pairing Flow Coordinator Commands
+// ============================================================================
+
+export type PairingFlowPhase =
+  | {
+      phase: "overwrite_required";
+      info: { localRows: number; nonEmptyTables: { table: string; rows: number }[] };
+    }
+  | { phase: "syncing"; detail: string }
+  | { phase: "success" }
+  | { phase: "error"; message: string };
+
+export interface PairingFlowResponse {
+  flowId: string;
+  phase: PairingFlowPhase;
+}
+
+export const beginPairingConfirm = async (
+  pairingId: string,
+  proof: string,
+  minSnapshotCreatedAt?: string,
+): Promise<PairingFlowResponse> => {
+  return invoke<PairingFlowResponse>("begin_pairing_confirm", {
+    pairingId,
+    proof,
+    minSnapshotCreatedAt,
+  });
+};
+
+export const getPairingFlowState = async (flowId: string): Promise<PairingFlowResponse> => {
+  return invoke<PairingFlowResponse>("get_pairing_flow_state", { flowId });
+};
+
+export const approvePairingOverwrite = async (flowId: string): Promise<PairingFlowResponse> => {
+  return invoke<PairingFlowResponse>("approve_pairing_overwrite", { flowId });
+};
+
+export const cancelPairingFlow = async (flowId: string): Promise<PairingFlowResponse> => {
+  return invoke<PairingFlowResponse>("cancel_pairing_flow", { flowId });
+};
+
+export const completePairingWithTransfer = async (
+  pairingId: string,
+  encryptedKeyBundle: string,
+  sasProof: string | Record<string, unknown>,
+  signature: string,
+): Promise<{ success: boolean }> => {
+  return invoke<{ success: boolean }>("complete_pairing_with_transfer", {
+    pairingId,
+    encryptedKeyBundle,
+    sasProof,
+    signature,
+  });
+};
+
+export interface ConfirmPairingWithBootstrapResult {
+  status: "applied" | "overwrite_required" | "already_complete" | "waiting_snapshot";
+  message: string;
+  localRows: number | null;
+  nonEmptyTables: { table: string; rows: number }[] | null;
+}
+
+export const confirmPairingWithBootstrap = async (
+  pairingId: string,
+  proof?: string,
+  minSnapshotCreatedAt?: string,
+  allowOverwrite?: boolean,
+): Promise<ConfirmPairingWithBootstrapResult> => {
+  return invoke<ConfirmPairingWithBootstrapResult>("confirm_pairing_with_bootstrap", {
+    pairingId,
+    proof,
+    minSnapshotCreatedAt,
+    allowOverwrite: allowOverwrite ?? false,
+  });
 };
 
 // ============================================================================
 // Wealthfolio Connect Auth Commands
 // ============================================================================
 
-export const storeSyncSession = async (
-  refreshToken: string,
-  accessToken?: string,
-): Promise<void> => {
-  return invoke<void>("store_sync_session", { refreshToken, accessToken });
+export const restoreSyncSession = async (): Promise<{
+  accessToken: string;
+  refreshToken: string;
+}> => {
+  return invoke<{ accessToken: string; refreshToken: string }>("restore_sync_session");
+};
+
+export const storeSyncSession = async (refreshToken: string): Promise<void> => {
+  return invoke<void>("store_sync_session", { refreshToken });
 };
 
 export const clearSyncSession = async (): Promise<void> => {

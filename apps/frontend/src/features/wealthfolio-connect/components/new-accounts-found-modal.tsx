@@ -1,4 +1,5 @@
 import { updateAccount } from "@/adapters";
+import { ExternalLink } from "@/components/external-link";
 import type { Account, TrackingMode } from "@/lib/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { RadioGroup, RadioGroupItem } from "@wealthfolio/ui";
@@ -147,14 +148,12 @@ export function NewAccountsFoundModal({
                   <strong>Transactions</strong> mode tracks every trade for full performance
                   analytics. <strong>Holdings</strong> mode imports snapshots only with limited
                   metrics.{" "}
-                  <a
+                  <ExternalLink
                     href="https://wealthfolio.app/docs/concepts/activity-types"
-                    target="_blank"
-                    rel="noopener noreferrer"
                     className="hover:text-foreground underline"
                   >
                     Learn more
-                  </a>
+                  </ExternalLink>
                 </AlertDescription>
               </Alert>
 

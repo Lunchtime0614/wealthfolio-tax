@@ -63,9 +63,14 @@ impl RulesResolver {
     ) -> Option<ProviderInstrument> {
         let symbol = match mic {
             Some(mic) => {
-                // Look up suffix for this MIC and provider
-                let suffix = self.exchange_map.get_suffix(mic, provider)?;
-                Arc::from(format!("{}{}", ticker, suffix))
+                // Look up suffix for this MIC and provider, fallback to ticker only if not found
+                match self.exchange_map.get_suffix(mic, provider) {
+                    Some(suffix) => Arc::from(format!("{}{}", ticker, suffix)),
+                    None => {
+                        // No mapping found - try ticker only (works for many US/global symbols)
+                        ticker.clone()
+                    }
+                }
             }
             None => {
                 // No MIC = assume US market, no suffix needed
@@ -126,6 +131,35 @@ impl RulesResolver {
         }
     }
 
+    /// Resolve a bond instrument by ISIN.
+    ///
+    /// Bonds use ISIN directly — no provider-specific symbol transformation needed.
+    /// Provider-specific ISIN filtering ensures bonds are routed to the correct provider:
+    /// - US_TREASURY_CALC: only US Treasury ISINs (US912*)
+    /// - BOERSE_FRANKFURT and others: all ISINs
+    fn resolve_bond(&self, isin: &Arc<str>, provider: &ProviderId) -> Option<ProviderInstrument> {
+        if provider.as_ref() == "US_TREASURY_CALC" && !isin.starts_with("US912") {
+            return None;
+        }
+        Some(ProviderInstrument::BondIsin { isin: isin.clone() })
+    }
+
+    /// Resolve an option instrument.
+    /// Yahoo and Alpha Vantage accept OCC symbols as equity-like symbols.
+    /// Alpha Vantage internally routes to the REALTIME_OPTIONS endpoint.
+    fn resolve_option(
+        &self,
+        occ_symbol: &Arc<str>,
+        provider: &ProviderId,
+    ) -> Option<ProviderInstrument> {
+        match provider.as_ref() {
+            "YAHOO" | "ALPHA_VANTAGE" => Some(ProviderInstrument::EquitySymbol {
+                symbol: occ_symbol.clone(),
+            }),
+            _ => None,
+        }
+    }
+
     /// Resolve a metal instrument.
     fn resolve_metal(
         &self,
@@ -176,6 +210,10 @@ impl Resolver for RulesResolver {
             InstrumentId::Fx { base, quote } => self.resolve_fx(base, quote, provider)?,
 
             InstrumentId::Metal { code, quote } => self.resolve_metal(code, quote, provider)?,
+
+            InstrumentId::Option { occ_symbol } => self.resolve_option(occ_symbol, provider)?,
+
+            InstrumentId::Bond { isin } => self.resolve_bond(isin, provider)?,
         };
 
         Some(Ok(ResolvedInstrument {
@@ -198,6 +236,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: None,
+            bond_metadata: None,
         }
     }
 
@@ -210,6 +249,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: None,
+            bond_metadata: None,
         }
     }
 
@@ -222,6 +262,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: None,
+            bond_metadata: None,
         }
     }
 
@@ -234,6 +275,7 @@ mod tests {
             overrides: None,
             currency_hint: None,
             preferred_provider: None,
+            bond_metadata: None,
         }
     }
 
@@ -421,8 +463,8 @@ mod tests {
 
         let result = resolver.resolve(&"YAHOO".into(), &context);
 
-        // Should return None for unknown MICs
-        assert!(result.is_none());
+        // Unknown MICs fall back to bare ticker
+        assert!(result.is_some());
     }
 
     #[test]
@@ -440,5 +482,19 @@ mod tests {
         // No MIC
         let currency = resolver.get_equity_currency(&None, &"YAHOO".into());
         assert!(currency.is_none());
+    }
+
+    #[test]
+    fn test_get_equity_currency_ignores_wrong_hint() {
+        // Simulates BATS@XLON: asset.quote_ccy="GBP" but Yahoo returns pence.
+        // The resolver should return "GBp" based on exchange metadata,
+        // regardless of what currency_hint says.
+        let resolver = RulesResolver::new();
+        let currency = resolver.get_equity_currency(&Some("XLON".into()), &"YAHOO".into());
+        assert_eq!(currency.as_deref(), Some("GBp"));
+
+        // Alpha Vantage correctly returns GBP (not pence) for XLON
+        let currency = resolver.get_equity_currency(&Some("XLON".into()), &"ALPHA_VANTAGE".into());
+        assert_eq!(currency.as_deref(), Some("GBP"));
     }
 }

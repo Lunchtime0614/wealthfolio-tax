@@ -162,10 +162,19 @@ export interface UpdateCheckPayload {
 /**
  * Platform information for the current runtime environment.
  */
+export interface PlatformCapabilities {
+  connect_sync: boolean;
+  device_sync: boolean;
+  cloud_sync: boolean;
+}
+
 export interface PlatformInfo {
   os: string;
+  arch?: string;
   is_mobile: boolean;
   is_desktop: boolean;
+  is_tauri?: boolean;
+  capabilities?: PlatformCapabilities;
 }
 
 // ============================================================================
@@ -215,6 +224,63 @@ export interface BackendSyncEngineStatusResult {
   bootstrapRequired: boolean;
 }
 
+export interface BackendSyncPairingSourceStatusResult {
+  status: "ready" | "restore_required";
+  message: string;
+  localCursor: number;
+  serverCursor: number;
+}
+
+export interface BackendSyncBootstrapOverwriteCheckTableResult {
+  table: string;
+  rows: number;
+}
+
+/**
+ * Result from device_sync_bootstrap_overwrite_check command.
+ */
+export interface BackendSyncBootstrapOverwriteCheckResult {
+  bootstrapRequired: boolean;
+  hasLocalData: boolean;
+  localRows: number;
+  nonEmptyTables: BackendSyncBootstrapOverwriteCheckTableResult[];
+}
+
+export interface BackendSyncReconcileReadyResult {
+  action?: "PULL_TAIL" | "BOOTSTRAP_SNAPSHOT" | "WAIT_SNAPSHOT" | "NOOP";
+  bootstrapAction:
+    | "PULL_REMOTE_OVERWRITE"
+    | "NO_REMOTE_PULL"
+    | "WAIT_REMOTE_SNAPSHOT"
+    | "NO_BOOTSTRAP";
+  reason?: string;
+  reconcileReason?: string;
+  cursor?: number;
+  deviceCursor?: number;
+  gcWatermark?: number;
+  staleCursor?: boolean;
+  diagnostics?: {
+    remoteSnapshotExists?: boolean;
+    trustedDeviceCount?: number;
+    teamKeyVersion?: number;
+    latestSnapshot?: {
+      snapshotId: string;
+      schemaVersion: number;
+      oplogSeq: number;
+    } | null;
+  };
+  status: "ok" | "skipped_not_ready" | "error";
+  message: string;
+  bootstrapStatus: "applied" | "skipped" | "requested" | "not_attempted";
+  bootstrapMessage: string | null;
+  bootstrapSnapshotId: string | null;
+  cycleStatus: string | null;
+  cycleNeedsBootstrap: boolean;
+  retryAttempted: boolean;
+  retryCycleStatus: string | null;
+  backgroundStatus: "started" | "skipped" | "failed";
+}
+
 /**
  * Result from sync_bootstrap_snapshot_if_needed command.
  */
@@ -235,6 +301,9 @@ export interface BackendSyncCycleResult {
   pulledCount: number;
   cursor: number;
   needsBootstrap: boolean;
+  bootstrapSnapshotId: string | null;
+  bootstrapSnapshotSeq: number | null;
+  deadLetterCount: number;
 }
 
 export interface BackendSyncBackgroundEngineResult {

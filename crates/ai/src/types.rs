@@ -24,7 +24,7 @@ pub const CHAT_CONTENT_SCHEMA_VERSION: u32 = 1;
 pub const CHAT_CONFIG_SCHEMA_VERSION: u32 = 1;
 
 /// Default tools allowed. Includes read-only tools and safe mutation tools
-/// (record_activity requires explicit user confirmation before creating).
+/// (`record_activity`/`record_activities` require explicit user confirmation before creating).
 pub const DEFAULT_TOOLS_ALLOWLIST: &[&str] = &[
     "get_holdings",
     "get_accounts",
@@ -35,6 +35,7 @@ pub const DEFAULT_TOOLS_ALLOWLIST: &[&str] = &[
     "get_asset_allocation",
     "get_goals",
     "record_activity",
+    "record_activities",
     "import_csv",
 ];
 
@@ -866,6 +867,10 @@ pub struct SendMessageRequest {
     /// Tool allowlist for this request (uses all if not specified).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_tools: Option<Vec<String>>,
+    /// Parent message ID for edit operations.
+    /// When set, AI context is truncated to this message (inclusive).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_message_id: Option<String>,
 }
 
 impl SendMessageRequest {

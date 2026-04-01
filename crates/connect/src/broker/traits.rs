@@ -4,14 +4,14 @@ use async_trait::async_trait;
 
 use super::models::{
     AccountUniversalActivity, BrokerAccount, BrokerBrokerage, BrokerConnection,
-    BrokerHoldingsResponse, HoldingsBalance, HoldingsPosition, PaginatedUniversalActivity,
-    SyncAccountsResponse, SyncConnectionsResponse,
+    BrokerHoldingsResponse, HoldingsBalance, HoldingsDiff, HoldingsOptionPosition,
+    HoldingsPosition, PaginatedUniversalActivity, SyncAccountsResponse, SyncConnectionsResponse,
 };
+use crate::broker_ingest::BrokerSyncState;
+use crate::broker_ingest::{ImportRun, ImportRunMode, ImportRunStatus, ImportRunSummary};
 use crate::platform::Platform;
-use crate::state::BrokerSyncState;
 use wealthfolio_core::accounts::Account;
 use wealthfolio_core::errors::Result;
-use wealthfolio_core::sync::{ImportRun, ImportRunMode, ImportRunStatus, ImportRunSummary};
 
 /// Trait for fetching data from the cloud broker API
 #[async_trait]
@@ -118,6 +118,14 @@ pub trait BrokerSyncServiceTrait: Send + Sync {
         import_run_id: Option<String>,
     ) -> Result<()>;
 
+    /// Finalize an activity sync as needs-review (partial success) for an account.
+    async fn finalize_activity_sync_needs_review(
+        &self,
+        account_id: String,
+        warning: String,
+        import_run_id: Option<String>,
+    ) -> Result<()>;
+
     /// Get all broker sync states.
     fn get_all_sync_states(&self) -> Result<Vec<BrokerSyncState>>;
 
@@ -142,11 +150,12 @@ pub trait BrokerSyncServiceTrait: Send + Sync {
     ) -> Result<()>;
 
     /// Save broker holdings as a snapshot with source=BROKER_IMPORTED.
-    /// Returns (positions_saved, assets_created, new_asset_ids).
+    /// Returns (position_diff, assets_created, new_asset_ids).
     async fn save_broker_holdings(
         &self,
         account_id: String,
         balances: Vec<HoldingsBalance>,
         positions: Vec<HoldingsPosition>,
-    ) -> Result<(usize, usize, Vec<String>)>;
+        option_positions: Vec<HoldingsOptionPosition>,
+    ) -> Result<(HoldingsDiff, usize, Vec<String>)>;
 }

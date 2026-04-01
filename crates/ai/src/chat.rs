@@ -194,7 +194,15 @@ impl<E: AiEnvironment + 'static> ChatService<E> {
         info!("Processing message for thread {}", thread_id);
 
         // Load previous messages for context (history)
-        let previous_messages = repo.get_messages_by_thread(&thread_id)?;
+        let mut previous_messages = repo.get_messages_by_thread(&thread_id)?;
+
+        // When editing a message, truncate context to the parent message (inclusive)
+        if let Some(ref parent_id) = request.parent_message_id {
+            if let Some(parent_pos) = previous_messages.iter().position(|m| m.id == *parent_id) {
+                previous_messages.truncate(parent_pos + 1);
+            }
+        }
+
         let history_messages: Vec<SimpleChatMessage> = previous_messages
             .iter()
             .filter_map(|msg| {
@@ -296,6 +304,7 @@ impl<E: AiEnvironment + 'static> ChatService<E> {
             "get_asset_allocation".to_string(),
             "get_performance".to_string(),
             "record_activity".to_string(),
+            "record_activities".to_string(),
             "import_csv".to_string(),
         ]
     }
@@ -476,7 +485,7 @@ async fn spawn_chat_stream<E: AiEnvironment + 'static>(
             If the user asks for any of that personal portfolio data, your first sentence MUST \
             start with: \"I don't have access to your ...\" (for example: \
             \"I don't have access to your holdings with the current model.\").\n\
-            Then suggest switching to a model that supports tools (look for the wrench icon in \
+            Then suggest switching to a model that supports tools (look for the gear icon in \
             the model picker). Never guess, fabricate, or imply you retrieved that data.",
         );
     }
@@ -583,6 +592,9 @@ async fn spawn_chat_stream<E: AiEnvironment + 'static>(
             }
             if is_allowed("record_activity") {
                 allowed_tools.push(Box::new(tool_set.record_activity));
+            }
+            if is_allowed("record_activities") {
+                allowed_tools.push(Box::new(tool_set.record_activities));
             }
             if is_allowed("import_csv") {
                 allowed_tools.push(Box::new(tool_set.import_csv));
@@ -906,7 +918,8 @@ fn create_ollama_client(
 ) -> Result<ollama::Client<HttpClient>, AiError> {
     let mut builder = ollama::Client::builder().api_key(Nothing);
     if let Some(url) = provider_url {
-        builder = builder.base_url(&url);
+        let normalized = url.trim_end_matches('/').trim_end_matches("/v1");
+        builder = builder.base_url(normalized);
     }
     builder
         .build()

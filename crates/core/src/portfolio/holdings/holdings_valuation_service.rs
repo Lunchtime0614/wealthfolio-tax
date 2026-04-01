@@ -4,13 +4,13 @@ use crate::fx::currency::{normalize_amount, normalize_currency_code};
 use crate::fx::FxServiceTrait;
 use crate::portfolio::holdings::{Holding, HoldingType, MonetaryValue};
 use crate::quotes::{LatestQuotePair, QuoteServiceTrait};
-use crate::utils::time_utils::valuation_date_today;
+use crate::utils::time_utils::{parse_user_timezone_or_default, user_today};
 use async_trait::async_trait;
 use log::{debug, warn};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 #[async_trait]
 pub trait HoldingsValuationServiceTrait: Send + Sync {
@@ -21,6 +21,7 @@ pub trait HoldingsValuationServiceTrait: Send + Sync {
 pub struct HoldingsValuationService {
     fx_service: Arc<dyn FxServiceTrait>,
     quote_service: Arc<dyn QuoteServiceTrait>,
+    timezone: Arc<RwLock<String>>,
 }
 
 impl HoldingsValuationService {
@@ -28,10 +29,28 @@ impl HoldingsValuationService {
         fx_service: Arc<dyn FxServiceTrait>,
         quote_service: Arc<dyn QuoteServiceTrait>,
     ) -> Self {
+        Self::new_with_timezone(
+            fx_service,
+            quote_service,
+            Arc::new(RwLock::new(String::new())),
+        )
+    }
+
+    pub fn new_with_timezone(
+        fx_service: Arc<dyn FxServiceTrait>,
+        quote_service: Arc<dyn QuoteServiceTrait>,
+        timezone: Arc<RwLock<String>>,
+    ) -> Self {
         Self {
             fx_service,
             quote_service,
+            timezone,
         }
+    }
+
+    fn today_in_user_timezone(&self) -> chrono::NaiveDate {
+        let tz = parse_user_timezone_or_default(&self.timezone.read().unwrap());
+        user_today(tz)
     }
 
     // Private helper to get FX rate with logging and fallback
@@ -99,7 +118,7 @@ impl HoldingsValuationServiceTrait for HoldingsValuationService {
         let latest_quote_pairs: HashMap<String, LatestQuotePair> =
             self.fetch_batch_quote_data(holdings).await?;
 
-        let today = valuation_date_today();
+        let today = self.today_in_user_timezone();
 
         for holding in holdings.iter_mut() {
             match holding.holding_type {
@@ -226,7 +245,8 @@ impl HoldingsValuationService {
                 &format!("{}: FX Quote->Base", context_msg),
             );
 
-            let market_value_quote_major = normalized_price * quantity;
+            let market_value_quote_major =
+                normalized_price * quantity * holding.contract_multiplier;
 
             let fx_rate_quote_to_local = self.get_fx_rate_or_fallback(
                 normalized_quote_currency,
@@ -277,7 +297,8 @@ impl HoldingsValuationService {
                     normalize_amount(prev_quote.close, &prev_quote.currency);
 
                 if prev_quote_currency_normalized == normalized_quote_currency {
-                    let prev_value_quote_major = prev_price_normalized * quantity;
+                    let prev_value_quote_major =
+                        prev_price_normalized * quantity * holding.contract_multiplier;
 
                     let fx_rate_prev_quote_to_local = fx_rate_quote_to_local;
                     let fx_rate_prev_quote_to_base = fx_rate_quote_to_base;

@@ -1,7 +1,7 @@
 // Web adapter core - Internal invoke function, COMMANDS map, and helpers
 // This module exports invoke, logger, and platform constants for shared modules
 
-import { getAuthToken, notifyUnauthorized } from "@/lib/auth-token";
+import { notifyUnauthorized } from "@/lib/auth-token";
 import type { Logger } from "../types";
 
 /** True when running in the desktop (Tauri) environment */
@@ -86,6 +86,7 @@ export const COMMANDS: CommandMap = {
   calculate_deposits_for_contribution_limit: { method: "GET", path: "/limits" },
   // Asset profile
   get_assets: { method: "GET", path: "/assets" },
+  create_asset: { method: "POST", path: "/assets" },
   delete_asset: { method: "DELETE", path: "/assets" },
   get_asset_profile: { method: "GET", path: "/assets/profile" },
   update_asset_profile: { method: "PUT", path: "/assets/profile" },
@@ -173,10 +174,23 @@ export const COMMANDS: CommandMap = {
   claim_pairing: { method: "POST", path: "/sync/pairing/claim" },
   get_pairing_messages: { method: "GET", path: "/sync/pairing" },
   confirm_pairing: { method: "POST", path: "/sync/pairing" },
+  complete_pairing_with_transfer: {
+    method: "POST",
+    path: "/sync/pairing/complete-with-transfer",
+  },
+  confirm_pairing_with_bootstrap: {
+    method: "POST",
+    path: "/sync/pairing/confirm-with-bootstrap",
+  },
+  begin_pairing_confirm: { method: "POST", path: "/sync/pairing/flow/begin" },
+  get_pairing_flow_state: { method: "POST", path: "/sync/pairing/flow/state" },
+  approve_pairing_overwrite: { method: "POST", path: "/sync/pairing/flow/approve-overwrite" },
+  cancel_pairing_flow: { method: "POST", path: "/sync/pairing/flow/cancel" },
   // Wealthfolio Connect (Broker Sync)
   store_sync_session: { method: "POST", path: "/connect/session" },
   clear_sync_session: { method: "DELETE", path: "/connect/session" },
   get_sync_session_status: { method: "GET", path: "/connect/session/status" },
+  restore_sync_session: { method: "GET", path: "/connect/session/restore" },
   list_broker_connections: { method: "GET", path: "/connect/connections" },
   list_broker_accounts: { method: "GET", path: "/connect/accounts" },
   sync_broker_data: { method: "POST", path: "/connect/sync" },
@@ -200,6 +214,18 @@ export const COMMANDS: CommandMap = {
   clear_device_sync_data: { method: "DELETE", path: "/connect/device/sync-data" },
   reinitialize_device_sync: { method: "POST", path: "/connect/device/reinitialize" },
   device_sync_engine_status: { method: "GET", path: "/connect/device/engine-status" },
+  device_sync_pairing_source_status: {
+    method: "GET",
+    path: "/connect/device/pairing-source-status",
+  },
+  device_sync_bootstrap_overwrite_check: {
+    method: "GET",
+    path: "/connect/device/bootstrap-overwrite-check",
+  },
+  device_sync_reconcile_ready_state: {
+    method: "POST",
+    path: "/connect/device/reconcile-ready-state",
+  },
   device_sync_bootstrap_snapshot_if_needed: {
     method: "POST",
     path: "/connect/device/bootstrap-snapshot",
@@ -486,15 +512,17 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       break;
     }
     case "check_update": {
-      const { currentVersion, target, arch } = (payload ?? {}) as {
+      const { currentVersion, target, arch, force } = (payload ?? {}) as {
         currentVersion?: string;
         target?: string;
         arch?: string;
+        force?: boolean;
       };
       const params = new URLSearchParams();
       if (currentVersion) params.set("currentVersion", currentVersion);
       if (target) params.set("target", target);
       if (arch) params.set("arch", arch);
+      if (force) params.set("force", "true");
       const qs = params.toString();
       if (qs) url += `?${qs}`;
       break;
@@ -598,6 +626,11 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
     case "delete_contribution_limit": {
       const { id } = payload as { id: string };
       url += `/${encodeURIComponent(id)}`;
+      break;
+    }
+    case "create_asset": {
+      const { payload: assetPayload } = payload as { payload: Record<string, unknown> };
+      body = JSON.stringify(assetPayload);
       break;
     }
     case "delete_asset": {
@@ -973,9 +1006,7 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
     }
     case "reset_team_sync": {
       const { reason } = (payload ?? {}) as { reason?: string };
-      if (reason) {
-        body = JSON.stringify({ reason });
-      }
+      body = reason ? JSON.stringify({ reason }) : JSON.stringify({});
       break;
     }
     // Device Sync commands - Pairing (Issuer - Trusted Device)
@@ -1028,18 +1059,40 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       break;
     }
     case "confirm_pairing": {
-      const { pairingId, proof } = payload as { pairingId: string; proof?: string };
+      const { pairingId, proof, minSnapshotCreatedAt } = payload as {
+        pairingId: string;
+        proof?: string;
+        minSnapshotCreatedAt?: string;
+      };
       url += `/${encodeURIComponent(pairingId)}/confirm`;
-      body = JSON.stringify({ proof });
+      body = JSON.stringify({ proof, minSnapshotCreatedAt });
+      break;
+    }
+    case "complete_pairing_with_transfer": {
+      body = JSON.stringify(payload);
+      break;
+    }
+    case "confirm_pairing_with_bootstrap": {
+      body = JSON.stringify(payload);
+      break;
+    }
+    case "begin_pairing_confirm":
+    case "get_pairing_flow_state":
+    case "approve_pairing_overwrite":
+    case "cancel_pairing_flow": {
+      body = JSON.stringify(payload);
+      break;
+    }
+    case "device_sync_reconcile_ready_state": {
+      body = JSON.stringify(payload ?? {});
       break;
     }
     // Wealthfolio Connect commands
     case "store_sync_session": {
-      const { accessToken, refreshToken } = payload as {
-        accessToken?: string;
+      const { refreshToken } = payload as {
         refreshToken: string;
       };
-      body = JSON.stringify({ accessToken, refreshToken });
+      body = JSON.stringify({ refreshToken });
       break;
     }
     case "list_devices":
@@ -1047,6 +1100,7 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
     case "rotate_team_keys":
     case "clear_sync_session":
     case "get_sync_session_status":
+    case "restore_sync_session":
     case "list_broker_connections":
     case "list_broker_accounts":
     case "sync_broker_data":
@@ -1133,12 +1187,14 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       break;
     }
     case "update_alternative_asset_metadata": {
-      const { assetId, metadata } = payload as {
+      const { assetId, metadata, name, notes } = payload as {
         assetId: string;
         metadata: Record<string, string>;
+        name?: string;
+        notes?: string | null;
       };
       url += `/${encodeURIComponent(assetId)}/metadata`;
-      body = JSON.stringify(metadata);
+      body = JSON.stringify({ metadata, name, notes });
       break;
     }
     case "get_alternative_holdings":
@@ -1232,49 +1288,27 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
-  const token = getAuthToken();
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+  if (command === "get_health_status" || command === "run_health_checks") {
+    const payloadTimezone =
+      typeof payload === "object" && payload !== null && "clientTimezone" in payload
+        ? String((payload as { clientTimezone?: string }).clientTimezone ?? "").trim()
+        : "";
+    const clientTimezone = payloadTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (clientTimezone) {
+      headers["X-Client-Timezone"] = clientTimezone;
+    }
   }
 
   const res = await fetch(url, {
     method: config.method,
     headers,
     body,
+    credentials: "same-origin",
+    signal: AbortSignal.timeout(120_000),
   });
 
-  // Only notify unauthorized for app auth failures, not for connect cloud token issues
-  // Connect endpoints return 401 when cloud token isn't configured - that's not an app auth failure
-  const connectCommands = [
-    "get_subscription_plans",
-    "get_subscription_plans_public",
-    "get_user_info",
-    "get_connect_portal",
-    "sync_broker_connections",
-    "sync_broker_accounts",
-    "sync_broker_activities",
-    "list_broker_connections",
-    "list_broker_accounts",
-    "get_broker_sync_states",
-    "get_broker_ingest_states",
-    "get_import_runs",
-    "get_data_import_runs",
-    "get_synced_accounts",
-    "get_platforms",
-    "sync_broker_data",
-    "broker_ingest_run",
-    "device_sync_engine_status",
-    "device_sync_bootstrap_snapshot_if_needed",
-    "device_sync_trigger_cycle",
-    "device_sync_start_background_engine",
-    "device_sync_stop_background_engine",
-    "device_sync_generate_snapshot_now",
-    "device_sync_cancel_snapshot_upload",
-    "store_sync_session",
-    "clear_sync_session",
-    "get_sync_session_status",
-  ];
-  if (res.status === 401 && !connectCommands.includes(command)) {
+  // 401 = app auth failure (JWT expired/invalid). Cloud auth failures return 403.
+  if (res.status === 401) {
     notifyUnauthorized();
   }
   if (!res.ok) {
@@ -1300,9 +1334,13 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
     const parsed = (await res.json()) as { path: string };
     return parsed.path as T;
   }
-  // Handle responses with no body (204 No Content, 202 Accepted)
+  // Handle responses with no body (204 No Content, 202 Accepted, or empty 200)
   if (res.status === 204 || res.status === 202) {
     return undefined as T;
   }
-  return (await res.json()) as T;
+  const text = await res.text();
+  if (!text) {
+    return undefined as T;
+  }
+  return JSON.parse(text) as T;
 };

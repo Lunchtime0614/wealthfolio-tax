@@ -21,6 +21,7 @@ interface ActivityFilters {
   needsReview?: boolean;
   dateFrom?: string; // YYYY-MM-DD format
   dateTo?: string; // YYYY-MM-DD format
+  instrumentTypes?: string | string[];
 }
 
 interface ActivitySort {
@@ -61,6 +62,7 @@ export const searchActivities = async (
 ): Promise<ActivitySearchResponse> => {
   const accountIdFilter = normalizeStringArray(filters?.accountIds);
   const activityTypeFilter = normalizeStringArray(filters?.activityTypes);
+  const instrumentTypeFilter = normalizeStringArray(filters?.instrumentTypes);
   const assetIdKeywordRaw = filters?.symbol ?? searchKeyword;
   const assetIdKeyword = assetIdKeywordRaw?.trim() ? assetIdKeywordRaw.trim() : undefined;
   const sortOption = sort?.id
@@ -81,6 +83,7 @@ export const searchActivities = async (
       needsReviewFilter,
       dateFrom,
       dateTo,
+      instrumentTypeFilter,
     });
   } catch (err) {
     logger.error("Error fetching activities.");
@@ -137,6 +140,8 @@ export const deleteActivity = async (activityId: string): Promise<Activity> => {
 
 /**
  * Import activities into the system.
+ * Expects activities that already passed backend check/preview resolution.
+ * Apply is persistence-only and rejects missing resolved symbol fields.
  * Extracts accountId from the first activity for the backend call.
  * Returns ImportActivitiesResult with activities, import_run_id, and summary.
  */

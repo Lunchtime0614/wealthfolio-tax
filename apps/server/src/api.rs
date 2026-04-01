@@ -8,12 +8,14 @@ use crate::{
 };
 use axum::middleware;
 use axum::{routing::get, Json, Router};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::{
     cors::{Any, CorsLayer},
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     timeout::TimeoutLayer,
-    trace::TraceLayer,
+    trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer},
 };
+use tracing::Level;
 use utoipa::OpenApi;
 
 mod accounts;
@@ -23,8 +25,12 @@ mod ai_chat;
 mod ai_providers;
 mod alternative_assets;
 mod assets;
+#[cfg(any(feature = "connect-sync", feature = "device-sync"))]
 pub mod connect;
+#[cfg(feature = "device-sync")]
 mod device_sync;
+#[cfg(feature = "device-sync")]
+pub(crate) mod device_sync_engine;
 mod exchange_rates;
 mod goals;
 mod health;
@@ -37,6 +43,7 @@ mod portfolio;
 mod secrets;
 mod settings;
 pub mod shared;
+#[cfg(feature = "device-sync")]
 mod sync_crypto;
 mod taxonomies;
 
@@ -68,14 +75,17 @@ pub fn app_router(state: Arc<AppState>, config: &Config) -> Router {
             .iter()
             .map(|o| o.parse().unwrap())
             .collect::<Vec<_>>();
-        CorsLayer::new().allow_origin(origins)
+        CorsLayer::new()
+            .allow_origin(origins)
+            .allow_credentials(true)
     };
 
     let openapi = ApiDoc::openapi();
     let requires_auth = state.auth.is_some();
 
     // Compose all protected routes from individual modules
-    let protected_api = Router::new()
+    #[allow(unused_mut)]
+    let mut protected_api = Router::new()
         .merge(accounts::router())
         .merge(settings::router())
         .merge(portfolio::router())
@@ -89,15 +99,32 @@ pub fn app_router(state: Arc<AppState>, config: &Config) -> Router {
         .merge(secrets::router())
         .merge(limits::router())
         .merge(addons::router())
-        .merge(device_sync::router())
-        .merge(connect::router())
         .merge(taxonomies::router())
         .merge(net_worth::router())
         .merge(alternative_assets::router())
         .merge(ai_providers::router())
         .merge(ai_chat::router())
-        .merge(sync_crypto::router())
         .merge(health::router());
+
+    #[cfg(feature = "device-sync")]
+    {
+        protected_api = protected_api
+            .merge(device_sync::router())
+            .merge(sync_crypto::router());
+    }
+
+    #[cfg(any(feature = "connect-sync", feature = "device-sync"))]
+    {
+        protected_api = protected_api.merge(connect::router());
+    }
+
+    let protected_api = protected_api.route(
+        "/openapi.json",
+        get({
+            let openapi = openapi.clone();
+            move || async { Json(openapi) }
+        }),
+    );
 
     let protected_api = if requires_auth {
         protected_api.layer(middleware::from_fn_with_state(
@@ -108,21 +135,43 @@ pub fn app_router(state: Arc<AppState>, config: &Config) -> Router {
         protected_api
     };
 
+    // Rate limit login: 5 requests per 60 seconds per peer IP
+    let login_governor = GovernorConfigBuilder::default()
+        .per_second(12) // replenish 1 token every 12s → 5 per 60s
+        .burst_size(5)
+        .finish()
+        .expect("valid governor config");
+
     let api = Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/auth/status", get(auth::auth_status))
-        .route("/auth/login", axum::routing::post(auth::login))
+        .route(
+            "/auth/login",
+            axum::routing::post(auth::login).layer(GovernorLayer::new(login_governor)),
+        )
+        .route("/auth/logout", axum::routing::post(auth::logout))
+        .route("/auth/me", get(auth::auth_me))
         .merge(protected_api)
         .with_state(state.clone());
 
     Router::new()
         .nest("/api/v1", api)
-        .route("/openapi.json", get(|| async { Json(openapi) }))
         .with_state(state)
         .layer(cors)
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(TimeoutLayer::new(config.request_timeout))
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<_>| {
+                    tracing::info_span!(
+                        "http_request",
+                        method = %request.method(),
+                        path = %request.uri().path(),
+                    )
+                })
+                .on_request(DefaultOnRequest::new().level(Level::INFO))
+                .on_response(DefaultOnResponse::new().level(Level::INFO)),
+        )
 }

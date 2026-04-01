@@ -37,7 +37,8 @@
       "currency": "USD",
       "timezone": "America/New_York",
       "close": [16, 0],
-      "yahoo": { "suffix": "", "codes": ["ARC"] }
+      "yahoo": { "suffix": "", "codes": ["ARC"] },
+      "alpha_vantage": { "suffix": "", "currency": "USD" }
     },
     {
       "mic": "BATS",
@@ -46,7 +47,8 @@
       "currency": "USD",
       "timezone": "America/New_York",
       "close": [16, 0],
-      "yahoo": { "suffix": "", "codes": ["BTS"] }
+      "yahoo": { "suffix": "", "codes": ["BTS"] },
+      "alpha_vantage": { "suffix": "", "currency": "USD" }
     },
     {
       "mic": "OTCM",
@@ -115,6 +117,15 @@
       "close": [16, 30],
       "yahoo": { "suffix": ".L", "codes": ["LSE", "IOB"] },
       "alpha_vantage": { "suffix": ".LON", "currency": "GBP" }
+    },
+    {
+      "mic": "CXE",
+      "name": "Cboe UK",
+      "long_name": "Cboe Europe Equities UK",
+      "currency": "GBP",
+      "timezone": "Europe/London",
+      "close": [16, 30],
+      "yahoo": { "suffix": ".XC", "codes": ["CXE"] }
     },
     {
       "mic": "XLON_IL",

@@ -1,8 +1,8 @@
-import { startOfYear, subDays, subMonths, subWeeks, subYears } from "date-fns";
-import React, { useCallback, useState } from "react";
+import { AnimatedToggleGroup } from "../ui/animated-toggle-group";
 import { usePersistentState } from "../../hooks/use-persistent-state";
 import { cn } from "../../lib/utils";
-import { AnimatedToggleGroup } from "../ui/animated-toggle-group";
+import { startOfYear, subDays, subMonths, subWeeks, subYears } from "date-fns";
+import React, { useCallback, useState } from "react";
 
 export type TimePeriod = "1D" | "1W" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "5Y" | "ALL";
 export interface DateRange {
@@ -90,6 +90,8 @@ interface IntervalSelectorProps {
   defaultValue?: TimePeriod;
   /** LocalStorage key to persist selection. When provided, selection is persisted. */
   storageKey?: string;
+  /** Optional callback for haptic feedback */
+  onHaptic?: () => void;
 }
 
 const IntervalSelector: React.FC<IntervalSelectorProps> = ({
@@ -97,6 +99,7 @@ const IntervalSelector: React.FC<IntervalSelectorProps> = ({
   className,
   defaultValue = DEFAULT_INTERVAL_CODE,
   storageKey,
+  onHaptic,
 }) => {
   // State for selection - persisted or local
   const [persistedValue, setPersistedValue] = usePersistentState<TimePeriod>(
@@ -118,8 +121,10 @@ const IntervalSelector: React.FC<IntervalSelectorProps> = ({
       // Notify parent
       const data = getIntervalData(value);
       onIntervalSelect(data.code, data.description, data.calculateRange());
+      // Trigger haptic feedback
+      onHaptic?.();
     },
-    [onIntervalSelect, storageKey, setPersistedValue],
+    [onIntervalSelect, storageKey, setPersistedValue, onHaptic],
   );
 
   const items = intervals.map((interval) => ({

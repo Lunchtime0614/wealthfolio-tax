@@ -8,41 +8,47 @@
 // ===========================================================================
 
 import {
-  logger,
-  getDeviceSyncState as getDeviceSyncStateApi,
-  enableDeviceSync as enableDeviceSyncApi,
-  clearDeviceSyncData as clearDeviceSyncDataApi,
-  reinitializeDeviceSync as reinitializeDeviceSyncApi,
-  getSyncEngineStatus as getSyncEngineStatusApi,
-  syncBootstrapSnapshotIfNeeded as syncBootstrapSnapshotIfNeededApi,
-  syncTriggerCycle as syncTriggerCycleApi,
-  getDevice as getDeviceApi,
-  listDevices as listDevicesApi,
-  updateDevice as updateDeviceApi,
-  deleteDevice as deleteDeviceApi,
-  revokeDevice as revokeDeviceApi,
-  resetTeamSync as resetTeamSyncApi,
-  createPairing as createPairingApi,
-  getPairing as getPairingApi,
-  approvePairing as approvePairingApi,
-  completePairing as completePairingApi,
   cancelPairing as cancelPairingApi,
   claimPairing as claimPairingApi,
+  clearDeviceSyncData as clearDeviceSyncDataApi,
+  completePairingWithTransfer as completePairingWithTransferApi,
+  confirmPairingWithBootstrap as confirmPairingWithBootstrapApi,
+  createPairing as createPairingApi,
+  deleteDevice as deleteDeviceApi,
+  deviceSyncBootstrapOverwriteCheck as deviceSyncBootstrapOverwriteCheckApi,
+  deviceSyncGenerateSnapshotNow as deviceSyncGenerateSnapshotNowApi,
+  deviceSyncReconcileReadyState as deviceSyncReconcileReadyStateApi,
+  deviceSyncStartBackgroundEngine as deviceSyncStartBackgroundEngineApi,
+  deviceSyncStopBackgroundEngine as deviceSyncStopBackgroundEngineApi,
+  enableDeviceSync as enableDeviceSyncApi,
+  getDevice as getDeviceApi,
+  getDeviceSyncState as getDeviceSyncStateApi,
+  getPairingSourceStatus as getPairingSourceStatusApi,
+  getPairing as getPairingApi,
   getPairingMessages as getPairingMessagesApi,
-  confirmPairing as confirmPairingApi,
-  isDesktop,
+  getSyncEngineStatus as getSyncEngineStatusApi,
+  listDevices as listDevicesApi,
+  logger,
+  reinitializeDeviceSync as reinitializeDeviceSyncApi,
+  resetTeamSync as resetTeamSyncApi,
+  revokeDevice as revokeDeviceApi,
+  syncBootstrapSnapshotIfNeeded as syncBootstrapSnapshotIfNeededApi,
+  syncTriggerCycle as syncTriggerCycleApi,
+  updateDevice as updateDeviceApi,
 } from "@/adapters";
-import { syncStorage } from "../storage/keyring";
+import type { ConfirmPairingWithBootstrapResult } from "@/adapters";
 import * as crypto from "../crypto";
+import { syncStorage } from "../storage/keyring";
 import type {
+  ClaimerSession,
   Device,
   DeviceSyncState,
-  PairingSession,
-  ClaimerSession,
   KeyBundlePayload,
-  TrustedDeviceSummary,
-  SyncIdentity,
+  PairingStatus,
+  PairingSession,
   StateDetectionResult,
+  SyncIdentity,
+  TrustedDeviceSummary,
 } from "../types";
 import { SyncError, SyncErrorCodes, SyncStates } from "../types";
 
@@ -59,6 +65,16 @@ export interface EnableSyncResult {
   needsPairing: boolean;
   trustedDevices: TrustedDeviceSummary[];
 }
+
+export type BootstrapCheckResult =
+  | {
+      status: "overwrite_required";
+      localRows: number;
+      nonEmptyTables: { table: string; rows: number }[];
+    }
+  | { status: "waiting_snapshot"; message: string }
+  | { status: "applied"; message: string }
+  | { status: "error"; message: string };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sync Service Class
@@ -167,20 +183,6 @@ class SyncService {
     }
   }
 
-  /**
-   * Initialize E2EE keys for the team.
-   * NOTE: This is now handled automatically by enableSync() when in BOOTSTRAP mode.
-   * This method is kept for backwards compatibility with existing UI code.
-   */
-  async initializeKeys(): Promise<{ keyVersion: number }> {
-    logger.info("[SyncService] initializeKeys called - delegating to enableSync...");
-    const result = await this.enableSync();
-    if (result.keyVersion === null) {
-      throw new SyncError(SyncErrorCodes.REQUIRES_PAIRING, "Pairing required to get keys");
-    }
-    return { keyVersion: result.keyVersion };
-  }
-
   async getEngineStatus(): Promise<{
     cursor: number;
     lastPushAt: string | null;
@@ -193,21 +195,25 @@ class SyncService {
     backgroundRunning: boolean;
     bootstrapRequired: boolean;
   }> {
-    if (!isDesktop) {
-      return {
-        cursor: 0,
-        lastPushAt: null,
-        lastPullAt: null,
-        lastError: null,
-        consecutiveFailures: 0,
-        nextRetryAt: null,
-        lastCycleStatus: "web_stub",
-        lastCycleDurationMs: null,
-        backgroundRunning: false,
-        bootstrapRequired: false,
-      };
-    }
     return getSyncEngineStatusApi();
+  }
+
+  async getPairingSourceStatus(): Promise<{
+    status: "ready" | "restore_required";
+    message: string;
+    localCursor: number;
+    serverCursor: number;
+  }> {
+    return getPairingSourceStatusApi();
+  }
+
+  async getBootstrapOverwriteCheck(): Promise<{
+    bootstrapRequired: boolean;
+    hasLocalData: boolean;
+    localRows: number;
+    nonEmptyTables: { table: string; rows: number }[];
+  }> {
+    return deviceSyncBootstrapOverwriteCheckApi();
   }
 
   async bootstrapSnapshotIfNeeded(): Promise<{
@@ -216,14 +222,6 @@ class SyncService {
     snapshotId: string | null;
     cursor: number | null;
   }> {
-    if (!isDesktop) {
-      return {
-        status: "skipped",
-        message: "Snapshot bootstrap is desktop-only",
-        snapshotId: null,
-        cursor: null,
-      };
-    }
     return syncBootstrapSnapshotIfNeededApi();
   }
 
@@ -234,18 +232,32 @@ class SyncService {
     pulledCount: number;
     cursor: number;
     needsBootstrap: boolean;
+    deadLetterCount: number;
   }> {
-    if (!isDesktop) {
-      return {
-        status: "skipped",
-        lockVersion: 0,
-        pushedCount: 0,
-        pulledCount: 0,
-        cursor: 0,
-        needsBootstrap: false,
-      };
+    const result = await syncTriggerCycleApi();
+    if (result.deadLetterCount > 0) {
+      logger.warn(
+        `[SyncService] ${result.deadLetterCount} outbox event(s) dead-lettered (key version mismatch)`,
+      );
     }
-    return syncTriggerCycleApi();
+    return result;
+  }
+
+  async startBackgroundEngine(): Promise<{ status: string; message: string }> {
+    return deviceSyncStartBackgroundEngineApi();
+  }
+
+  async stopBackgroundEngine(): Promise<{ status: string; message: string }> {
+    return deviceSyncStopBackgroundEngineApi();
+  }
+
+  async generateSnapshotNow(): Promise<{
+    status: string;
+    snapshotId: string | null;
+    oplogSeq: number | null;
+    message: string;
+  }> {
+    return deviceSyncGenerateSnapshotNowApi();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -259,6 +271,8 @@ class SyncService {
     try {
       // Generate pairing code
       const code = await crypto.generatePairingCode();
+      // hashPairingCode is intentionally used here (not hmacSha256) — this is a
+      // lookup hash for the server to match the pairing code, not an auth proof.
       const codeHash = await crypto.hashPairingCode(code);
 
       // Generate ephemeral keypair for key exchange
@@ -317,53 +331,98 @@ class SyncService {
     return { claimed: false };
   }
 
-  /**
-   * Approve a pairing session.
-   */
-  async approvePairing(pairingId: string): Promise<void> {
-    await approvePairingApi(pairingId);
+  async getPairingStatus(pairingId: string): Promise<PairingStatus> {
+    const result = await getPairingApi(pairingId);
+    return result.status;
   }
 
   /**
-   * Complete pairing by sending encrypted key bundle to claimer.
-   * Note: The claimer's device ID is already known by the server from the claim step.
+   * Complete pairing with transfer — issuer side, single backend call.
+   * Frontend computes crypto (SAS, encrypt key bundle) then calls this.
    */
-  async completePairing(session: PairingSession): Promise<void> {
+  async completePairingWithTransfer(
+    session: PairingSession,
+  ): Promise<{ remoteSeedPresent: boolean | null }> {
     if (new Date() > session.expiresAt) {
       throw new SyncError(SyncErrorCodes.PAIRING_EXPIRED, "Pairing session expired");
     }
-
     if (!session.claimerPublicKey || !session.sessionKey) {
       throw new SyncError(SyncErrorCodes.INVALID_SESSION, "Session not ready for key transfer");
     }
 
-    // Load root key
     const rootKeyB64 = await syncStorage.getRootKey();
     if (!rootKeyB64) {
       throw new SyncError(SyncErrorCodes.ROOT_KEY_NOT_FOUND, "Root key not found");
     }
-
     const keyVersion = await syncStorage.getKeyVersion();
-
-    // Create key bundle
     const keyBundle: KeyBundlePayload = {
       version: 1,
       rootKey: rootKeyB64,
       keyVersion: keyVersion ?? 1,
     };
-
-    // Encrypt key bundle with session key
     const encryptedKeyBundle = await crypto.encrypt(session.sessionKey, JSON.stringify(keyBundle));
-
-    // Compute SAS for verification
     const sas = await crypto.computeSAS(session.sessionKey);
-
-    // Create signature
     const signatureData = `complete:${session.pairingId}:${encryptedKeyBundle}`;
-    const signature = await crypto.hashPairingCode(signatureData);
+    const signature = await crypto.hmacSha256(session.sessionKey, signatureData);
 
-    // Complete on server (server knows claimer from claim step)
-    await completePairingApi(session.pairingId, encryptedKeyBundle, sas, signature);
+    try {
+      await completePairingWithTransferApi(session.pairingId, encryptedKeyBundle, sas, signature);
+      return { remoteSeedPresent: null };
+    } catch (err) {
+      throw SyncError.from(err, SyncErrorCodes.SNAPSHOT_FAILED);
+    }
+  }
+
+  /**
+   * Confirm pairing with bootstrap — claimer side, single backend call.
+   * Returns result indicating if overwrite is needed.
+   */
+  async confirmPairingWithBootstrap(
+    session: ClaimerSession,
+    keyBundle: KeyBundlePayload,
+    minSnapshotCreatedAt?: string,
+    allowOverwrite?: boolean,
+  ): Promise<ConfirmPairingWithBootstrapResult> {
+    if (new Date() > session.expiresAt) {
+      throw new SyncError(SyncErrorCodes.PAIRING_EXPIRED, "Pairing session expired");
+    }
+
+    const proofData = `confirm:${session.pairingId}:${keyBundle.keyVersion}`;
+    const proof = await crypto.hmacSha256(session.sessionKey, proofData);
+    const freshnessGate = minSnapshotCreatedAt ?? session.keyBundleCreatedAt;
+
+    // Store credentials locally BEFORE confirming (so backend can use them for bootstrap)
+    await syncStorage.setE2EECredentials(keyBundle.rootKey, keyBundle.keyVersion, {
+      secretKey: session.ephemeralSecretKey,
+      publicKey: session.ephemeralPublicKey,
+    });
+
+    const result = await confirmPairingWithBootstrapApi(
+      session.pairingId,
+      proof,
+      freshnessGate,
+      allowOverwrite,
+    );
+
+    logger.info(`[SyncService] confirmPairingWithBootstrap: status=${result.status}`);
+    return result;
+  }
+
+  /**
+   * Retry bootstrap with overwrite after user accepted the overwrite dialog.
+   * Uses the composite endpoint — proof is null because confirm is idempotent
+   * (already confirmed on the first call), freshness gate is already set in backend.
+   */
+  async retryBootstrapWithOverwrite(pairingId: string): Promise<ConfirmPairingWithBootstrapResult> {
+    return confirmPairingWithBootstrapApi(pairingId, undefined, undefined, true);
+  }
+
+  /**
+   * Retry claimer bootstrap without overwrite.
+   * Used when backend reports waiting_snapshot and the claimer should poll until ready.
+   */
+  async retryPairingBootstrap(pairingId: string): Promise<ConfirmPairingWithBootstrapResult> {
+    return confirmPairingWithBootstrapApi(pairingId, undefined, undefined, false);
   }
 
   /**
@@ -419,6 +478,7 @@ class SyncService {
   async pollForKeyBundle(session: ClaimerSession): Promise<{
     received: boolean;
     keyBundle?: KeyBundlePayload;
+    keyBundleCreatedAt?: string;
     status: string;
   }> {
     const result = await getPairingMessagesApi(session.pairingId);
@@ -456,6 +516,7 @@ class SyncService {
         return {
           received: true,
           keyBundle,
+          keyBundleCreatedAt: keyBundleMsg.createdAt,
           status: result.sessionStatus,
         };
       } catch (err) {
@@ -467,43 +528,50 @@ class SyncService {
     return { received: false, status: result.sessionStatus };
   }
 
-  /**
-   * Confirm pairing and store root key (claimer side).
-   */
-  async confirmPairingAsClaimer(
-    session: ClaimerSession,
-    keyBundle: KeyBundlePayload,
-  ): Promise<{ keyVersion: number }> {
-    if (new Date() > session.expiresAt) {
-      throw new SyncError(SyncErrorCodes.PAIRING_EXPIRED, "Pairing session expired");
-    }
-
-    // Compute proof (HMAC of session data)
-    const proofData = `confirm:${session.pairingId}:${keyBundle.keyVersion}`;
-    const proof = await crypto.hashPairingCode(proofData);
-
-    // Confirm with server
-    const result = await confirmPairingApi(session.pairingId, proof);
-
-    if (!result.success) {
-      throw new SyncError(SyncErrorCodes.KEYS_INIT_FAILED, "Failed to confirm pairing");
-    }
-
-    // Store credentials locally (atomic operation)
-    await syncStorage.setE2EECredentials(keyBundle.rootKey, keyBundle.keyVersion, {
-      secretKey: session.ephemeralSecretKey,
-      publicKey: session.ephemeralPublicKey,
-    });
-
-    logger.info(`[SyncService] Pairing confirmed, key version: ${keyBundle.keyVersion}`);
-    return { keyVersion: keyBundle.keyVersion };
-  }
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NON-PAIRING BOOTSTRAP (stale_cursor / device rejoining)
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Get SAS (Short Authentication String) for verification.
+   * Bootstrap with overwrite check — combines overwrite check + reconcile.
+   * First call with allowOverwrite=false to check. If overwrite_required,
+   * show dialog, then call again with allowOverwrite=true.
    */
-  async getSASForSession(sessionKey: string): Promise<string> {
-    return crypto.computeSAS(sessionKey);
+  async bootstrapWithOverwriteCheck(allowOverwrite: boolean): Promise<BootstrapCheckResult> {
+    if (!allowOverwrite) {
+      const check = await this.getBootstrapOverwriteCheck();
+      if (check.bootstrapRequired && check.hasLocalData) {
+        return {
+          status: "overwrite_required",
+          localRows: check.localRows,
+          nonEmptyTables: check.nonEmptyTables,
+        };
+      }
+    }
+
+    const result = await deviceSyncReconcileReadyStateApi(allowOverwrite);
+    if (result.status === "error") {
+      return { status: "error", message: result.message };
+    }
+
+    const waitingForSnapshot =
+      result.bootstrapStatus === "requested" ||
+      result.cycleNeedsBootstrap ||
+      result.cycleStatus === "wait_snapshot" ||
+      result.cycleStatus === "stale_cursor" ||
+      result.retryCycleStatus === "wait_snapshot" ||
+      result.retryCycleStatus === "stale_cursor";
+    if (waitingForSnapshot) {
+      return {
+        status: "waiting_snapshot",
+        message: result.bootstrapMessage ?? result.message,
+      };
+    }
+
+    return {
+      status: "applied",
+      message: result.bootstrapMessage ?? result.message,
+    };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -610,36 +678,6 @@ class SyncService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // LOCAL STATE HELPERS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /**
-   * Get the sync identity from keychain.
-   */
-  async getIdentity(): Promise<SyncIdentity | null> {
-    return syncStorage.getIdentity();
-  }
-
-  /**
-   * Get the device ID from keychain.
-   */
-  async getDeviceId(): Promise<string | null> {
-    return syncStorage.getDeviceId();
-  }
-
-  /**
-   * Get the root key from keychain.
-   */
-  async getRootKey(): Promise<string | null> {
-    return syncStorage.getRootKey();
-  }
-
-  /**
-   * Get the key version from keychain.
-   */
-  async getKeyVersion(): Promise<number | null> {
-    return syncStorage.getKeyVersion();
-  }
 }
 
 // Export singleton instance with explicit device-sync naming.

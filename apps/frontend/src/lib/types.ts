@@ -176,6 +176,7 @@ export interface ActivityDetails {
   assetQuoteMode?: QuoteMode;
   /** Canonical exchange MIC code for asset identification */
   exchangeMic?: string;
+  instrumentType?: string;
   // Sync/source metadata
   sourceSystem?: string;
   sourceRecordId?: string;
@@ -219,6 +220,7 @@ export interface SymbolInput {
 
 export interface ActivityCreate {
   id?: string;
+  idempotencyKey?: string;
   accountId: string;
   activityType: string;
   subtype?: string | null; // Semantic variation (DRIP, STAKING_REWARD, etc.)
@@ -635,6 +637,7 @@ export interface Settings {
   theme: string;
   font: string;
   baseCurrency: string;
+  timezone: string;
   instanceId: string;
   onboardingCompleted: boolean;
   autoUpdateCheckEnabled: boolean;
@@ -830,6 +833,20 @@ export interface PerformanceMetrics {
   isHoldingsMode?: boolean;
 }
 
+export interface NewAsset {
+  id?: string;
+  kind: string;
+  name?: string;
+  displayCode?: string;
+  isActive: boolean;
+  quoteMode: string;
+  quoteCcy: string;
+  instrumentType?: string;
+  instrumentSymbol?: string;
+  instrumentExchangeMic?: string;
+  notes?: string;
+}
+
 export interface UpdateAssetProfile {
   id: string;
   displayCode?: string | null;
@@ -838,6 +855,7 @@ export interface UpdateAssetProfile {
   kind?: AssetKind | null;
   quoteMode?: QuoteMode | null;
   quoteCcy?: string | null;
+  instrumentType?: string | null;
   instrumentExchangeMic?: string | null;
   providerConfig?: Record<string, unknown> | null;
 }
@@ -1612,7 +1630,8 @@ export type HealthCategory =
   | "FX_INTEGRITY"
   | "CLASSIFICATION"
   | "DATA_CONSISTENCY"
-  | "ACCOUNT_CONFIGURATION";
+  | "ACCOUNT_CONFIGURATION"
+  | "SETTINGS_CONFIGURATION";
 
 /**
  * Navigation action for health issue resolution.
