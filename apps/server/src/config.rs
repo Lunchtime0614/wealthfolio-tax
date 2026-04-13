@@ -33,9 +33,9 @@ impl Config {
             .filter(|s| !s.is_empty())
             .collect();
         let timeout_ms: u64 = std::env::var("WF_REQUEST_TIMEOUT_MS")
-            .unwrap_or_else(|_| "30000".into())
+            .unwrap_or_else(|_| "300000".into())
             .parse()
-            .unwrap_or(30000);
+            .unwrap_or(300000);
         let static_dir = std::env::var("WF_STATIC_DIR").unwrap_or_else(|_| "dist".into());
         let secret_key = std::env::var("WF_SECRET_KEY")
             .unwrap_or_else(|_| panic!("WF_SECRET_KEY must be set and contain a 32-byte key"))
@@ -99,8 +99,16 @@ impl Config {
             if auth_required {
                 panic!(
                     "Refusing to start: listening on non-loopback address {listen_addr} without \
-                     authentication. Set WF_AUTH_PASSWORD_HASH to enable auth, or set \
-                     WF_AUTH_REQUIRED=false if a reverse proxy handles authentication."
+                     authentication.\n\
+                     \n\
+                     To fix this, do one of the following:\n\
+                     \n\
+                     1. Set WF_AUTH_PASSWORD_HASH to an Argon2id hash of your password.\n\
+                        Generate one with: printf 'your-password' | argon2 yoursalt16chars! -id -e\n\
+                        In a .env file, no escaping is needed.\n\
+                        In Docker Compose YAML, double every $ sign: '$$argon2id$$v=19$$...'\n\
+                     \n\
+                     2. Set WF_AUTH_REQUIRED=false if a reverse proxy handles authentication."
                 );
             }
         }

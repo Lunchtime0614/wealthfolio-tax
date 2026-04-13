@@ -70,6 +70,7 @@ function getSearchResultKey(result: SymbolSearchResult) {
     result.symbol,
     result.exchangeMic ?? result.exchange,
     result.currency,
+    result.longName ?? result.shortName,
     result.index,
   ].filter(Boolean);
   return parts.join("|");
@@ -315,7 +316,22 @@ const TickerSearchInput = forwardRef<HTMLButtonElement, SearchProps>(
     );
 
     useEffect(() => {
-      if (selectedResult) return;
+      if (selectedResult) {
+        const exchangeDisplay =
+          selectedResult.exchangeName || getExchangeDisplayName(selectedResult.exchange);
+        const exchangeSuffix = exchangeDisplay ? ` (${exchangeDisplay})` : "";
+        const displayText = `${selectedResult.symbol} - ${
+          selectedResult.longName || selectedResult.shortName || selectedResult.symbol
+        }${exchangeSuffix}`;
+        setSelected(displayText);
+        setSelectedTicker({
+          symbol: selectedResult.symbol,
+          name: selectedResult.longName || selectedResult.shortName || selectedResult.symbol,
+          exchangeDisplay: exchangeDisplay || "",
+        });
+        return;
+      }
+
       const current = value ?? defaultValue ?? "";
       if (!current) {
         setSelected("");
@@ -350,14 +366,23 @@ const TickerSearchInput = forwardRef<HTMLButtonElement, SearchProps>(
       [handleSelectResult],
     );
 
+    // Auto-search on mount when a defaultValue is pre-filled
+    useEffect(() => {
+      if (defaultValue && defaultValue.length > 1) {
+        setDebouncedQuery(defaultValue);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // Use debounced query for API call
     const { data, isLoading, isError } = useQuery<SymbolSearchResult[], Error>({
       queryKey: ["ticker-search", debouncedQuery],
       queryFn: () => searchTicker(debouncedQuery),
       enabled:
         debouncedQuery?.length > 1 &&
-        selected !== debouncedQuery &&
-        defaultValue !== debouncedQuery,
+        // Only block re-search after an actual confirmed selection (name is populated),
+        // not when the input is just pre-filled from defaultValue (name is empty).
+        !(selected === debouncedQuery && !!selectedTicker?.name),
       staleTime: 60000, // Cache results for 1 minute
       gcTime: 300000, // Keep in cache for 5 minutes (formerly cacheTime)
     });
@@ -526,6 +551,7 @@ const TickerSearchInput = forwardRef<HTMLButtonElement, SearchProps>(
             className="w-(--radix-popover-trigger-width) h-auto min-w-[280px] p-0"
             onOpenAutoFocus={handleOpenAutoFocus}
             onCloseAutoFocus={handleCloseAutoFocus}
+            onWheel={(e) => e.stopPropagation()}
           >
             <Command shouldFilter={false} className="border-none">
               <CommandInput

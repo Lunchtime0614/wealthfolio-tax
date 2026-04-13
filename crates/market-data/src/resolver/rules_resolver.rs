@@ -61,6 +61,13 @@ impl RulesResolver {
         mic: &Option<std::borrow::Cow<'static, str>>,
         provider: &ProviderId,
     ) -> Option<ProviderInstrument> {
+        if provider.as_ref() == "BOERSE_FRANKFURT" {
+            let mic = mic.as_deref().unwrap_or("XETR");
+            return Some(ProviderInstrument::EquitySymbol {
+                symbol: Arc::from(format!("{}:{}", mic, ticker)),
+            });
+        }
+
         let symbol = match mic {
             Some(mic) => {
                 // Look up suffix for this MIC and provider, fallback to ticker only if not found
@@ -202,6 +209,24 @@ impl Resolver for RulesResolver {
         provider: &ProviderId,
         context: &QuoteContext,
     ) -> Option<Result<ResolvedInstrument, MarketDataError>> {
+        // CUSTOM_SCRAPER: extract symbol from any instrument variant
+        if provider.as_ref() == "CUSTOM_SCRAPER" {
+            let symbol = match &context.instrument {
+                InstrumentId::Equity { ticker, .. } => ticker.clone(),
+                InstrumentId::Crypto { base, .. } => base.clone(),
+                InstrumentId::Fx { base, quote } => {
+                    Arc::from(format!("{}{}", base, quote).as_str())
+                }
+                InstrumentId::Metal { code, .. } => code.clone(),
+                InstrumentId::Bond { isin } => isin.clone(),
+                InstrumentId::Option { occ_symbol } => occ_symbol.clone(),
+            };
+            return Some(Ok(ResolvedInstrument {
+                instrument: ProviderInstrument::EquitySymbol { symbol },
+                source: ResolutionSource::Rules,
+            }));
+        }
+
         let instrument = match &context.instrument {
             InstrumentId::Equity { ticker, mic } => self.resolve_equity(ticker, mic, provider)?,
 
@@ -237,6 +262,7 @@ mod tests {
             currency_hint: None,
             preferred_provider: None,
             bond_metadata: None,
+            custom_provider_code: None,
         }
     }
 
@@ -250,6 +276,7 @@ mod tests {
             currency_hint: None,
             preferred_provider: None,
             bond_metadata: None,
+            custom_provider_code: None,
         }
     }
 
@@ -263,6 +290,7 @@ mod tests {
             currency_hint: None,
             preferred_provider: None,
             bond_metadata: None,
+            custom_provider_code: None,
         }
     }
 
@@ -276,6 +304,7 @@ mod tests {
             currency_hint: None,
             preferred_provider: None,
             bond_metadata: None,
+            custom_provider_code: None,
         }
     }
 
@@ -482,6 +511,25 @@ mod tests {
         // No MIC
         let currency = resolver.get_equity_currency(&None, &"YAHOO".into());
         assert!(currency.is_none());
+    }
+
+    #[test]
+    fn test_resolve_equity_boerse_frankfurt_bare_ticker() {
+        // BF needs the MIC to distinguish Xetra vs Frankfurt for both quotes and profiles.
+        let resolver = RulesResolver::new();
+        let context = make_equity_context("XDWD", Some("XETR"));
+
+        let result = resolver.resolve(&"BOERSE_FRANKFURT".into(), &context);
+
+        assert!(result.is_some());
+        let resolved = result.unwrap().unwrap();
+
+        match resolved.instrument {
+            ProviderInstrument::EquitySymbol { symbol } => {
+                assert_eq!(symbol.as_ref(), "XETR:XDWD");
+            }
+            _ => panic!("Expected EquitySymbol"),
+        }
     }
 
     #[test]

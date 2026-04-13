@@ -77,12 +77,14 @@ fn connect_auth_url() -> Option<String> {
         .map(|v| v.trim().trim_end_matches('/').to_string())
         .filter(|v| !v.is_empty())
         .or_else(|| option_env!("CONNECT_AUTH_URL").map(|v| v.trim_end_matches('/').to_string()))
+        .or_else(|| Some("https://auth.wealthfolio.app".to_string()))
 }
 
 fn connect_auth_api_key() -> Option<String> {
     std::env::var("CONNECT_AUTH_PUBLISHABLE_KEY")
         .ok()
         .or_else(|| option_env!("CONNECT_AUTH_PUBLISHABLE_KEY").map(String::from))
+        .or_else(|| Some("sb_publishable_ZSZbXNtWtnh9i2nqJ2UL4A_NV8ZVutd".to_string()))
 }
 
 fn token_lifecycle_config() -> Option<TokenLifecycleConfig> {
@@ -888,6 +890,40 @@ async fn get_import_runs(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Broker Sync Profile Operations
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BrokerSyncProfileQuery {
+    account_id: String,
+    source_system: String,
+}
+
+async fn get_broker_sync_profile(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<BrokerSyncProfileQuery>,
+) -> ApiResult<Json<wealthfolio_core::activities::BrokerSyncProfileData>> {
+    Ok(Json(
+        state
+            .activity_service
+            .get_broker_sync_profile(q.account_id, q.source_system)?,
+    ))
+}
+
+async fn save_broker_sync_profile_rules(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<wealthfolio_core::activities::SaveBrokerSyncProfileRulesRequest>,
+) -> ApiResult<Json<wealthfolio_core::activities::BrokerSyncProfileData>> {
+    Ok(Json(
+        state
+            .activity_service
+            .save_broker_sync_profile_rules(request)
+            .await?,
+    ))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Device Enroll Operations
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1218,6 +1254,11 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/connect/platforms", get(get_platforms))
         .route("/connect/sync-states", get(get_broker_sync_states))
         .route("/connect/import-runs", get(get_import_runs))
+        // Broker sync profile
+        .route(
+            "/connect/broker-sync-profile",
+            get(get_broker_sync_profile).post(save_broker_sync_profile_rules),
+        )
         // User & Subscription
         .route("/connect/plans", get(get_subscription_plans))
         .route("/connect/plans/public", get(get_subscription_plans_public))

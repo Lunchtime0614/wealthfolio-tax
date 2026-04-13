@@ -70,14 +70,26 @@ export const COMMANDS: CommandMap = {
   delete_activity: { method: "DELETE", path: "/activities" },
   // Activity import
   check_activities_import: { method: "POST", path: "/activities/import/check" },
+  preview_import_assets: { method: "POST", path: "/activities/import/assets/preview" },
   import_activities: { method: "POST", path: "/activities/import" },
   get_account_import_mapping: { method: "GET", path: "/activities/import/mapping" },
   save_account_import_mapping: { method: "POST", path: "/activities/import/mapping" },
+  link_account_template: { method: "POST", path: "/activities/import/templates/link" },
+  list_import_templates: { method: "GET", path: "/activities/import/templates" },
+  get_import_template: { method: "GET", path: "/activities/import/templates/item" },
+  save_import_template: { method: "POST", path: "/activities/import/templates" },
+  delete_import_template: { method: "DELETE", path: "/activities/import/templates" },
   // Market data providers
   get_exchanges: { method: "GET", path: "/exchanges" },
   get_market_data_providers: { method: "GET", path: "/providers" },
   get_market_data_providers_settings: { method: "GET", path: "/providers/settings" },
   update_market_data_provider_settings: { method: "PUT", path: "/providers/settings" },
+  // Custom providers
+  get_custom_providers: { method: "GET", path: "/custom-providers" },
+  create_custom_provider: { method: "POST", path: "/custom-providers" },
+  update_custom_provider: { method: "PUT", path: "/custom-providers" },
+  delete_custom_provider: { method: "DELETE", path: "/custom-providers" },
+  test_custom_provider_source: { method: "POST", path: "/custom-providers/test-source" },
   // Contribution limits
   get_contribution_limits: { method: "GET", path: "/limits" },
   create_contribution_limit: { method: "POST", path: "/limits" },
@@ -208,6 +220,8 @@ export const COMMANDS: CommandMap = {
   get_broker_ingest_states: { method: "GET", path: "/connect/sync-states" },
   get_import_runs: { method: "GET", path: "/connect/import-runs" },
   get_data_import_runs: { method: "GET", path: "/connect/import-runs" },
+  get_broker_sync_profile: { method: "GET", path: "/connect/broker-sync-profile" },
+  save_broker_sync_profile_rules: { method: "POST", path: "/connect/broker-sync-profile" },
   // Device Sync / Enrollment
   get_device_sync_state: { method: "GET", path: "/connect/device/sync-state" },
   enable_device_sync: { method: "POST", path: "/connect/device/enable" },
@@ -527,8 +541,13 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       if (qs) url += `?${qs}`;
       break;
     }
-    case "get_income_summary":
+    case "get_income_summary": {
+      const { accountId: incomeAccountId } = payload as { accountId?: string };
+      if (incomeAccountId) {
+        url += `?accountId=${encodeURIComponent(incomeAccountId)}`;
+      }
       break;
+    }
     case "delete_goal": {
       const { goalId } = payload as { goalId: string };
       url += `/${encodeURIComponent(goalId)}`;
@@ -592,14 +611,16 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       break;
     }
     case "check_activities_import":
+    case "preview_import_assets":
     case "import_activities": {
       body = JSON.stringify(payload);
       break;
     }
     case "get_account_import_mapping": {
-      const { accountId } = payload as { accountId: string };
+      const { accountId, contextKind } = payload as { accountId: string; contextKind?: string };
       const params = new URLSearchParams();
       params.set("accountId", accountId);
+      if (contextKind) params.set("contextKind", contextKind);
       url += `?${params.toString()}`;
       break;
     }
@@ -608,8 +629,54 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       body = JSON.stringify({ mapping });
       break;
     }
+    case "get_import_template":
+    case "delete_import_template": {
+      const { id } = payload as { id: string };
+      const params = new URLSearchParams();
+      params.set("id", id);
+      url += `?${params.toString()}`;
+      break;
+    }
+    case "save_import_template": {
+      const { template } = payload as { template: Record<string, unknown> };
+      body = JSON.stringify({ template });
+      break;
+    }
+    case "link_account_template": {
+      const { accountId, templateId, contextKind } = payload as {
+        accountId: string;
+        templateId: string;
+        contextKind?: string;
+      };
+      body = JSON.stringify({ accountId, templateId, contextKind });
+      break;
+    }
     case "update_market_data_provider_settings": {
       body = JSON.stringify(payload);
+      break;
+    }
+    case "create_custom_provider": {
+      const { payload: cp } = payload as { payload: Record<string, unknown> };
+      body = JSON.stringify(cp);
+      break;
+    }
+    case "update_custom_provider": {
+      const { providerId, payload: cp } = payload as {
+        providerId: string;
+        payload: Record<string, unknown>;
+      };
+      url += `/${encodeURIComponent(providerId)}`;
+      body = JSON.stringify(cp);
+      break;
+    }
+    case "delete_custom_provider": {
+      const { providerId } = payload as { providerId: string };
+      url += `/${encodeURIComponent(providerId)}`;
+      break;
+    }
+    case "test_custom_provider_source": {
+      const { payload: tp } = payload as { payload: Record<string, unknown> };
+      body = JSON.stringify(tp);
       break;
     }
     case "create_contribution_limit": {
@@ -1137,6 +1204,19 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       if (qs) url += `?${qs}`;
       break;
     }
+    case "get_broker_sync_profile": {
+      const { accountId, sourceSystem } = payload as { accountId: string; sourceSystem: string };
+      const params = new URLSearchParams();
+      params.set("accountId", accountId);
+      params.set("sourceSystem", sourceSystem);
+      url += `?${params.toString()}`;
+      break;
+    }
+    case "save_broker_sync_profile_rules": {
+      const { request } = payload as { request: Record<string, unknown> };
+      body = JSON.stringify(request);
+      break;
+    }
     // Net Worth commands
     case "get_net_worth": {
       const { date } = (payload ?? {}) as { date?: string };
@@ -1304,7 +1384,7 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
     headers,
     body,
     credentials: "same-origin",
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(300_000),
   });
 
   // 401 = app auth failure (JWT expired/invalid). Cloud auth failures return 403.

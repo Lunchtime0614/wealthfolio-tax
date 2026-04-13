@@ -2,6 +2,7 @@ import { getExchanges } from "@/adapters";
 import { MultiSelectTaxonomy } from "@/components/classification/multi-select-taxonomy";
 import { SingleSelectTaxonomy } from "@/components/classification/single-select-taxonomy";
 import { TickerAvatar } from "@/components/ticker-avatar";
+import { useCustomProviders } from "@/hooks/use-custom-providers";
 import { useMarketDataProviders } from "@/hooks/use-market-data-providers";
 import { useTaxonomies } from "@/hooks/use-taxonomies";
 import type { Asset, Quote } from "@/lib/types";
@@ -41,7 +42,9 @@ import { Input } from "@wealthfolio/ui/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@wealthfolio/ui/components/ui/select";
@@ -52,13 +55,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import * as z from "zod";
 import { useAssetProfileMutations } from "./hooks/use-asset-profile-mutations";
-
-const PROVIDERS = [
-  { value: "YAHOO", label: "Yahoo Finance" },
-  { value: "ALPHA_VANTAGE", label: "Alpha Vantage" },
-  { value: "FINNHUB", label: "Finnhub" },
-  { value: "MARKETDATA_APP", label: "MarketData.app" },
-] as const;
 
 // Schema for a single provider override (type is derived from asset kind)
 const providerOverrideSchema = z.object({
@@ -105,7 +101,7 @@ const EDIT_INSTRUMENT_TYPE_OPTIONS = [
   { value: "CRYPTO", label: "Cryptocurrency" },
   { value: "BOND", label: "Bond" },
   { value: "OPTION", label: "Option" },
-  { value: "METAL", label: "Precious Metal" },
+  { value: "METAL", label: "Metal (Commodity)" },
 ] as const;
 
 // Parse provider overrides from config JSON (supports nested and flat formats)
@@ -130,12 +126,18 @@ function parseProviderOverrides(
 }
 
 // Extract preferred_provider from config JSON
+// Returns "CUSTOM:<code>" when preferred_provider is CUSTOM_SCRAPER with custom_provider_code
 function parsePreferredProvider(
   config: Record<string, unknown> | null | undefined,
 ): string | undefined {
   if (!config) return undefined;
   const pref = config.preferred_provider;
-  return typeof pref === "string" ? pref : undefined;
+  if (typeof pref !== "string") return undefined;
+  if (pref === "CUSTOM_SCRAPER") {
+    const code = config.custom_provider_code;
+    return typeof code === "string" ? `CUSTOM:${code}` : pref;
+  }
+  return pref;
 }
 
 // Serialize form values to nested provider config JSON
@@ -155,10 +157,20 @@ function serializeProviderConfig(
     }
   }
   const hasOverrides = Object.keys(overridesMap).length > 0;
-  const hasPref = !!preferredProvider;
+
+  // Handle CUSTOM:<code> format
+  let actualProvider = preferredProvider;
+  let customProviderCode: string | undefined;
+  if (preferredProvider?.startsWith("CUSTOM:")) {
+    actualProvider = "CUSTOM_SCRAPER";
+    customProviderCode = preferredProvider.slice("CUSTOM:".length);
+  }
+
+  const hasPref = !!actualProvider;
   if (!hasOverrides && !hasPref) return null;
   const result: Record<string, unknown> = {};
-  if (hasPref) result.preferred_provider = preferredProvider;
+  if (hasPref) result.preferred_provider = actualProvider;
+  if (customProviderCode) result.custom_provider_code = customProviderCode;
   if (hasOverrides) result.overrides = overridesMap;
   return result;
 }
@@ -262,13 +274,37 @@ export function AssetEditSheet({
   const { data: taxonomies = [], isLoading: isTaxonomiesLoading } = useTaxonomies();
   const { updateAssetProfileMutation } = useAssetProfileMutations();
   const { data: marketDataProviders = [] } = useMarketDataProviders();
+  const { data: customProviders = [] } = useCustomProviders();
+
+  // Built-in providers only (exclude CUSTOM_SCRAPER dispatcher and custom provider rows)
+  const builtinProviders = useMemo(
+    () =>
+      marketDataProviders.filter((p) => p.id !== "CUSTOM_SCRAPER" && p.providerType !== "custom"),
+    [marketDataProviders],
+  );
 
   const providerOptions: ResponsiveSelectOption[] = useMemo(() => {
-    return [
+    const options: ResponsiveSelectOption[] = [
       { value: "__auto__", label: "Auto (default)" },
-      ...marketDataProviders.map((p) => ({ value: p.id, label: p.name })),
+      ...builtinProviders.map((p) => ({ value: p.id, label: p.name })),
     ];
-  }, [marketDataProviders]);
+    for (const cp of customProviders) {
+      options.push({ value: `CUSTOM:${cp.id}`, label: cp.name });
+    }
+    return options;
+  }, [builtinProviders, customProviders]);
+
+  // Provider options for symbol mapping (without Auto, includes custom providers)
+  const mappingProviderOptions: ResponsiveSelectOption[] = useMemo(() => {
+    const options: ResponsiveSelectOption[] = builtinProviders.map((p) => ({
+      value: p.id,
+      label: p.name,
+    }));
+    for (const cp of customProviders) {
+      options.push({ value: `CUSTOM:${cp.id}`, label: cp.name });
+    }
+    return options;
+  }, [builtinProviders, customProviders]);
 
   const { data: exchanges = [] } = useQuery({
     queryKey: ["exchanges"],
@@ -745,19 +781,53 @@ export function AssetEditSheet({
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Preferred Provider</FormLabel>
-                            <FormControl>
-                              <ResponsiveSelect
+                            {customProviders.length > 0 ? (
+                              <Select
                                 value={field.value ?? "__auto__"}
                                 onValueChange={(v) =>
                                   field.onChange(v === "__auto__" ? undefined : v)
                                 }
-                                options={providerOptions}
-                                placeholder="Auto (default)"
-                                sheetTitle="Preferred Provider"
-                                sheetDescription="Select which provider to use first for this asset"
-                                triggerClassName="h-11"
-                              />
-                            </FormControl>
+                              >
+                                <FormControl>
+                                  <SelectTrigger className="h-11">
+                                    <SelectValue placeholder="Auto (default)" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="__auto__">Auto (default)</SelectItem>
+                                  <SelectGroup>
+                                    <SelectLabel>Built-in</SelectLabel>
+                                    {builtinProviders.map((p) => (
+                                      <SelectItem key={p.id} value={p.id}>
+                                        {p.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectGroup>
+                                  <SelectGroup>
+                                    <SelectLabel>Custom</SelectLabel>
+                                    {customProviders.map((cp) => (
+                                      <SelectItem key={cp.id} value={`CUSTOM:${cp.id}`}>
+                                        {cp.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectGroup>
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <FormControl>
+                                <ResponsiveSelect
+                                  value={field.value ?? "__auto__"}
+                                  onValueChange={(v) =>
+                                    field.onChange(v === "__auto__" ? undefined : v)
+                                  }
+                                  options={providerOptions}
+                                  placeholder="Auto (default)"
+                                  sheetTitle="Preferred Provider"
+                                  sheetDescription="Select which provider to use first for this asset"
+                                  triggerClassName="h-11"
+                                />
+                              </FormControl>
+                            )}
                             <p className="text-muted-foreground text-xs">
                               Choose which provider to try first when fetching prices.
                             </p>
@@ -825,10 +895,7 @@ export function AssetEditSheet({
                                               <ResponsiveSelect
                                                 value={providerField.value}
                                                 onValueChange={providerField.onChange}
-                                                options={PROVIDERS.map((p) => ({
-                                                  label: p.label,
-                                                  value: p.value,
-                                                }))}
+                                                options={mappingProviderOptions}
                                                 placeholder="Select provider"
                                                 sheetTitle="Data Provider"
                                                 sheetDescription="Select the data provider for this symbol mapping"
@@ -848,7 +915,7 @@ export function AssetEditSheet({
                                               <Input
                                                 placeholder="e.g., SHOP.TO"
                                                 {...symbolField}
-                                                className="h-9 uppercase"
+                                                className="h-9"
                                               />
                                             </FormControl>
                                           </FormItem>

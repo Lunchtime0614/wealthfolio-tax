@@ -492,6 +492,7 @@ impl FinnhubProvider {
             dividend_yield: None,
             week_52_high: None,
             week_52_low: None,
+            isin: None,
         })
     }
 
@@ -668,6 +669,7 @@ mod tests {
             currency_hint: currency_hint.map(Cow::Borrowed),
             preferred_provider: None,
             bond_metadata: None,
+            custom_provider_code: None,
         }
     }
 

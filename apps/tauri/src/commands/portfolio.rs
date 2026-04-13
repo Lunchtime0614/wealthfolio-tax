@@ -276,11 +276,12 @@ pub async fn get_latest_valuations(
 #[tauri::command]
 pub async fn get_income_summary(
     state: State<'_, Arc<ServiceContext>>,
+    account_id: Option<String>,
 ) -> Result<Vec<IncomeSummary>, String> {
     debug!("Fetching income summary...");
     state
         .income_service()
-        .get_income_summary()
+        .get_income_summary(account_id.as_deref())
         .map_err(|e| e.to_string())
 }
 
@@ -713,6 +714,8 @@ pub struct HoldingsPositionInput {
     pub currency: String,
     /// Exchange MIC code (e.g., "XNAS", "XTSE") resolved during check step
     pub exchange_mic: Option<String>,
+    /// Resolved asset ID from asset review step
+    pub asset_id: Option<String>,
 }
 
 /// A single snapshot from CSV import (one date's worth of holdings)
@@ -868,7 +871,7 @@ async fn import_single_snapshot(
             .unwrap_or(Decimal::ZERO);
 
         positions.push(ManualHoldingInput {
-            asset_id: None,
+            asset_id: pos_input.asset_id.clone(),
             symbol: pos_input.symbol.clone(),
             exchange_mic: pos_input.exchange_mic.clone(),
             quantity,

@@ -45,6 +45,7 @@ fn sync_entity_name(entity: &SyncEntity) -> &'static str {
         SyncEntity::AssetTaxonomyAssignment => "asset_taxonomy_assignment",
         SyncEntity::Activity => "activity",
         SyncEntity::ActivityImportProfile => "activity_import_profile",
+        SyncEntity::ImportTemplate => "import_template",
         SyncEntity::Goal => "goal",
         SyncEntity::GoalsAllocation => "goals_allocation",
         SyncEntity::AiThread => "ai_thread",
@@ -53,6 +54,9 @@ fn sync_entity_name(entity: &SyncEntity) -> &'static str {
         SyncEntity::ContributionLimit => "contribution_limit",
         SyncEntity::Platform => "platform",
         SyncEntity::Snapshot => "snapshot",
+        SyncEntity::CustomProvider => "custom_provider",
+        SyncEntity::CustomTaxonomy => "custom_taxonomy",
+        SyncEntity::ImportRun => "import_run",
     }
 }
 

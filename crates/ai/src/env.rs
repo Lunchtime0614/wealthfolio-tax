@@ -84,7 +84,9 @@ pub mod test_env {
         activities::{
             Activity, ActivityBulkMutationRequest, ActivityBulkMutationResult, ActivityDetails,
             ActivityImport, ActivitySearchResponse, ActivitySearchResponseMeta,
-            ActivityServiceTrait, ActivityUpdate, ImportMappingData, NewActivity, Sort,
+            ActivityServiceTrait, ActivityUpdate, BrokerSyncProfileData, ImportAssetCandidate,
+            ImportAssetPreviewItem, ImportMappingData, ImportTemplateData, ImportTemplateScope,
+            NewActivity, SaveBrokerSyncProfileRulesRequest, Sort,
         },
         assets::{Asset, ProviderProfile},
         errors::DatabaseError,
@@ -286,7 +288,11 @@ pub mod test_env {
             Ok(None)
         }
 
-        fn get_import_mapping(&self, _account_id: String) -> CoreResult<ImportMappingData> {
+        fn get_import_mapping(
+            &self,
+            _account_id: String,
+            _import_type: String,
+        ) -> CoreResult<ImportMappingData> {
             // Return error to simulate no saved mapping (tests will use auto-detection)
             Err(wealthfolio_core::errors::DatabaseError::NotFound(
                 "No saved import mapping".to_string(),
@@ -315,7 +321,6 @@ pub mod test_env {
 
         async fn check_activities_import(
             &self,
-            _account_id: String,
             _activities: Vec<ActivityImport>,
         ) -> CoreResult<Vec<ActivityImport>> {
             unimplemented!("MockActivityService::check_activities_import")
@@ -323,7 +328,6 @@ pub mod test_env {
 
         async fn import_activities(
             &self,
-            _account_id: String,
             _activities: Vec<ActivityImport>,
         ) -> CoreResult<wealthfolio_core::activities::ImportActivitiesResult> {
             unimplemented!("MockActivityService::import_activities")
@@ -381,6 +385,72 @@ pub mod test_env {
             _activities: Vec<wealthfolio_core::activities::ActivityUpsert>,
         ) -> CoreResult<wealthfolio_core::activities::BulkUpsertResult> {
             unimplemented!("MockActivityService::upsert_activities_bulk")
+        }
+
+        fn list_import_templates(&self) -> CoreResult<Vec<ImportTemplateData>> {
+            Ok(vec![])
+        }
+
+        fn get_import_template(&self, _template_id: String) -> CoreResult<ImportTemplateData> {
+            Ok(ImportTemplateData::default())
+        }
+
+        async fn preview_import_assets(
+            &self,
+            _candidates: Vec<ImportAssetCandidate>,
+        ) -> CoreResult<Vec<ImportAssetPreviewItem>> {
+            Ok(vec![])
+        }
+
+        async fn link_account_template(
+            &self,
+            _account_id: String,
+            _template_id: String,
+            _context_kind: String,
+        ) -> CoreResult<()> {
+            Ok(())
+        }
+
+        async fn save_import_template(
+            &self,
+            template: ImportTemplateData,
+        ) -> CoreResult<ImportTemplateData> {
+            Ok(template)
+        }
+
+        async fn delete_import_template(&self, _template_id: String) -> CoreResult<()> {
+            Ok(())
+        }
+
+        fn get_broker_sync_profile(
+            &self,
+            _account_id: String,
+            _source_system: String,
+        ) -> CoreResult<BrokerSyncProfileData> {
+            Ok(BrokerSyncProfileData {
+                id: String::new(),
+                name: String::new(),
+                scope: ImportTemplateScope::User,
+                source_system: String::new(),
+                activity_mappings: std::collections::HashMap::new(),
+                symbol_mappings: std::collections::HashMap::new(),
+                symbol_mapping_meta: std::collections::HashMap::new(),
+            })
+        }
+
+        async fn save_broker_sync_profile_rules(
+            &self,
+            _request: SaveBrokerSyncProfileRulesRequest,
+        ) -> CoreResult<BrokerSyncProfileData> {
+            Ok(BrokerSyncProfileData {
+                id: String::new(),
+                name: String::new(),
+                scope: ImportTemplateScope::User,
+                source_system: String::new(),
+                activity_mappings: std::collections::HashMap::new(),
+                symbol_mappings: std::collections::HashMap::new(),
+                symbol_mapping_meta: std::collections::HashMap::new(),
+            })
         }
     }
 
@@ -449,6 +519,13 @@ pub mod test_env {
             _date: NaiveDate,
         ) -> CoreResult<Vec<DailyAccountValuation>> {
             Ok(self.valuations.clone())
+        }
+
+        fn get_accounts_with_negative_balance(
+            &self,
+            _account_ids: &[String],
+        ) -> CoreResult<Vec<String>> {
+            Ok(Vec::new())
         }
 
         async fn calculate_valuation_history(
@@ -979,7 +1056,7 @@ pub mod test_env {
     pub struct MockIncomeService;
 
     impl IncomeServiceTrait for MockIncomeService {
-        fn get_income_summary(&self) -> CoreResult<Vec<IncomeSummary>> {
+        fn get_income_summary(&self, _account_id: Option<&str>) -> CoreResult<Vec<IncomeSummary>> {
             Ok(vec![
                 IncomeSummary::new("TOTAL", "USD".to_string()),
                 IncomeSummary::new("YTD", "USD".to_string()),
@@ -1010,7 +1087,7 @@ pub mod test_env {
                 period_end_date: None,
                 currency: "USD".to_string(),
                 period_gain: rust_decimal::Decimal::ZERO,
-                period_return: rust_decimal::Decimal::ZERO,
+                period_return: Some(rust_decimal::Decimal::ZERO),
                 cumulative_twr: Some(rust_decimal::Decimal::ZERO),
                 gain_loss_amount: Some(rust_decimal::Decimal::ZERO),
                 annualized_twr: Some(rust_decimal::Decimal::ZERO),
@@ -1040,7 +1117,7 @@ pub mod test_env {
                 period_end_date: None,
                 currency: "USD".to_string(),
                 period_gain: rust_decimal::Decimal::ZERO,
-                period_return: rust_decimal::Decimal::ZERO,
+                period_return: Some(rust_decimal::Decimal::ZERO),
                 cumulative_twr: Some(rust_decimal::Decimal::ZERO),
                 gain_loss_amount: Some(rust_decimal::Decimal::ZERO),
                 annualized_twr: Some(rust_decimal::Decimal::ZERO),

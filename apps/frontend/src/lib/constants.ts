@@ -9,6 +9,26 @@ export const WEALTHFOLIO_CONNECT_PORTAL_URL = "https://connect.wealthfolio.app";
 
 export const PORTFOLIO_ACCOUNT_ID = "TOTAL";
 
+/**
+ * Creates a synthetic "All Portfolio" account used as default selection
+ * in account filter dropdowns. Not a real DB account.
+ */
+export function createPortfolioAccount(baseCurrency: string) {
+  return {
+    id: PORTFOLIO_ACCOUNT_ID,
+    name: "All Portfolio",
+    accountType: "PORTFOLIO" as never,
+    balance: 0,
+    currency: baseCurrency,
+    isDefault: false,
+    isActive: true,
+    isArchived: false,
+    trackingMode: "NOT_SET" as const,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+}
+
 /** JSON metadata key for a non-standard option contract multiplier (e.g. mini options = 10). */
 export const METADATA_CONTRACT_MULTIPLIER = "contract_multiplier";
 
@@ -85,8 +105,9 @@ export const DataSource = {
 
 export type DataSource = (typeof DataSource)[keyof typeof DataSource];
 
-// Zod schema for data source validation
-export const dataSourceSchema = z.enum([DataSource.YAHOO, DataSource.MANUAL]);
+// Zod schema for data source validation — accepts any string since the backend
+// can return many provider IDs (BROKER, ALPHA_VANTAGE, CUSTOM_SCRAPER:xyz, etc.)
+export const dataSourceSchema = z.string();
 
 // QuoteMode: How an asset's price is determined (used on Asset/Activity objects)
 export const QuoteMode = {
@@ -106,14 +127,15 @@ export const pricingModeSchema = quoteModeSchema;
 
 export const ImportFormat = {
   DATE: "date",
+  ACCOUNT: "account",
   ACTIVITY_TYPE: "activityType",
   SYMBOL: "symbol",
+  ISIN: "isin",
   QUANTITY: "quantity",
   UNIT_PRICE: "unitPrice",
   AMOUNT: "amount",
   CURRENCY: "currency",
   FEE: "fee",
-  ACCOUNT: "account",
   COMMENT: "comment",
   FX_RATE: "fxRate",
   SUBTYPE: "subtype",
@@ -124,14 +146,15 @@ export type ImportFormat = (typeof ImportFormat)[keyof typeof ImportFormat];
 
 export const importFormatSchema = z.enum([
   ImportFormat.DATE,
+  ImportFormat.ACCOUNT,
   ImportFormat.ACTIVITY_TYPE,
   ImportFormat.SYMBOL,
+  ImportFormat.ISIN,
   ImportFormat.QUANTITY,
   ImportFormat.UNIT_PRICE,
   ImportFormat.AMOUNT,
   ImportFormat.CURRENCY,
   ImportFormat.FEE,
-  ImportFormat.ACCOUNT,
   ImportFormat.COMMENT,
   ImportFormat.FX_RATE,
   ImportFormat.SUBTYPE,

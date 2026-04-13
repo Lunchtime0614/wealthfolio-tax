@@ -12,6 +12,7 @@ import { logger } from "@/adapters";
 import { SUBTYPES_BY_ACTIVITY_TYPE, SUBTYPE_DISPLAY_NAMES } from "@/lib/constants";
 import { looksLikeOccSymbol, normalizeOptionSymbol } from "@/lib/occ-symbol";
 import { looksLikeIsin } from "@/lib/isin";
+import { findMappedActivityType } from "./activity-type-mapping";
 import { normalizeInstrumentType, splitInstrumentPrefixedSymbol } from "./instrument-type";
 
 // Ticker symbol validation regex
@@ -36,7 +37,7 @@ export function validateTickerSymbol(symbol: string): boolean {
 }
 
 // Re-export shared activity type mapping utilities
-export { ACTIVITY_TYPE_SMART_DEFAULTS, findMappedActivityType } from "./activity-type-mapping";
+export { findMappedActivityType };
 
 // Build reverse lookup from display names to subtype codes
 const DISPLAY_NAME_TO_SUBTYPE: Record<string, string> = {};
@@ -413,10 +414,18 @@ function transformRowToActivity(
 ): Partial<ActivityImport> {
   const activity: Partial<ActivityImport> = { accountId, isDraft: true, isValid: false };
 
-  // Helper to get mapped value
+  // Helper to get mapped value (supports fallback column arrays)
   const getMappedValue = (field: ImportFormat): string | undefined => {
     const headerName = mapping.fieldMappings[field];
     if (!headerName) return undefined;
+    if (Array.isArray(headerName)) {
+      for (const h of headerName) {
+        const value = row[h];
+        const trimmed = typeof value === "string" ? value.trim() : undefined;
+        if (trimmed) return trimmed;
+      }
+      return undefined;
+    }
     const value = row[headerName];
     return typeof value === "string" ? value.trim() : undefined;
   };
@@ -470,13 +479,8 @@ function transformRowToActivity(
 
   // 2. Determine Activity Type
   if (csvActivityType) {
-    const trimmedCsvType = csvActivityType.trim().toUpperCase();
-    for (const [appType, csvTypes] of Object.entries(mapping.activityMappings)) {
-      if (csvTypes?.some((ct) => trimmedCsvType.startsWith(ct.trim().toUpperCase()))) {
-        activity.activityType = appType as ActivityType;
-        break;
-      }
-    }
+    activity.activityType =
+      findMappedActivityType(csvActivityType, mapping.activityMappings) ?? activity.activityType;
   }
 
   // Validate subtype against allowed subtypes for the determined activity type
@@ -493,6 +497,22 @@ function transformRowToActivity(
   activity.symbol = logic.calculateSymbol(currentActivityState, accountCurrency);
   activity.amount = logic.calculateAmount(currentActivityState);
   activity.fee = logic.calculateFee(currentActivityState);
+
+  // For BUY/SELL: if CSV amount significantly disagrees with qty*price,
+  // trust CSV amount and derive unitPrice (handles bond % of par, etc.)
+  if (
+    (activity.activityType === ActivityType.BUY || activity.activityType === ActivityType.SELL) &&
+    activity.amount !== undefined &&
+    activity.amount > 0
+  ) {
+    const csvAmount = toNum(currentActivityState.amount);
+    if (csvAmount && csvAmount > 0 && activity.amount / csvAmount > 1.02) {
+      activity.amount = csvAmount;
+      if (activity.quantity && activity.quantity > 0) {
+        activity.unitPrice = csvAmount / activity.quantity;
+      }
+    }
+  }
 
   // 4. Final Cleanup & Defaulting
   // Handle NaN values resulting from calculations or initial parsing

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Button,
@@ -34,6 +35,8 @@ export function QuoteHistoryToolbar({
   onCancel,
   onChangeDataSource,
 }: QuoteHistoryToolbarProps) {
+  const [popoverOpen, setPopoverOpen] = useState(false);
+
   return (
     <div className="flex items-center justify-between gap-2">
       {/* Left: action buttons */}
@@ -79,7 +82,7 @@ export function QuoteHistoryToolbar({
       </div>
 
       {/* Right: manual tracking toggle */}
-      <Popover>
+      <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
         <PopoverTrigger asChild>
           <div className="flex shrink-0 cursor-pointer items-center space-x-2">
             <Switch id="manual-tracking" checked={isManualDataSource} />
@@ -114,13 +117,16 @@ export function QuoteHistoryToolbar({
               </>
             )}
             <div className="flex justify-end space-x-2">
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" onClick={() => setPopoverOpen(false)}>
                 Cancel
               </Button>
               <Button
                 variant="default"
                 size="sm"
-                onClick={() => onChangeDataSource?.(!isManualDataSource)}
+                onClick={() => {
+                  onChangeDataSource?.(!isManualDataSource);
+                  setPopoverOpen(false);
+                }}
               >
                 Confirm Change
               </Button>

@@ -35,7 +35,11 @@ pub fn default_adapter_descriptors() -> Vec<EntityAdapterDescriptor> {
         },
         EntityAdapterDescriptor {
             entity: SyncEntity::ActivityImportProfile,
-            table_name: "activity_import_profiles",
+            table_name: "import_account_templates",
+        },
+        EntityAdapterDescriptor {
+            entity: SyncEntity::ImportTemplate,
+            table_name: "import_templates",
         },
         EntityAdapterDescriptor {
             entity: SyncEntity::Goal,
@@ -68,6 +72,20 @@ pub fn default_adapter_descriptors() -> Vec<EntityAdapterDescriptor> {
         EntityAdapterDescriptor {
             entity: SyncEntity::Snapshot,
             table_name: "holdings_snapshots",
+        },
+        EntityAdapterDescriptor {
+            entity: SyncEntity::CustomProvider,
+            table_name: "market_data_custom_providers",
+        },
+        EntityAdapterDescriptor {
+            entity: SyncEntity::ImportRun,
+            table_name: "import_runs",
+        },
+        // CustomTaxonomy is a bundle entity covering both taxonomies and taxonomy_categories.
+        // It does not map 1:1 to a single table, but we register it for adapter discovery.
+        EntityAdapterDescriptor {
+            entity: SyncEntity::CustomTaxonomy,
+            table_name: "taxonomies",
         },
     ]
 }

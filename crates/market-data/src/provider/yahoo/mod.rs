@@ -873,9 +873,9 @@ impl MarketDataProvider for YahooProvider {
 
     fn rate_limit(&self) -> RateLimit {
         RateLimit {
-            requests_per_minute: 1000,
-            max_concurrency: 5,
-            min_delay: Duration::from_millis(50),
+            requests_per_minute: 2000,
+            max_concurrency: 10,
+            min_delay: Duration::from_millis(25),
         }
     }
 
@@ -1269,6 +1269,7 @@ mod tests {
             currency_hint: Some(Cow::Borrowed("USD")),
             preferred_provider: None,
             bond_metadata: None,
+            custom_provider_code: None,
         }
     }
 
@@ -1287,6 +1288,7 @@ mod tests {
             currency_hint: currency_hint.map(Cow::Borrowed),
             preferred_provider: None,
             bond_metadata: None,
+            custom_provider_code: None,
         }
     }
 
@@ -1382,6 +1384,7 @@ mod tests {
             overrides: None,
             preferred_provider: None,
             bond_metadata: None,
+            custom_provider_code: None,
         };
         assert_eq!(provider.get_currency(&context), "GBp");
     }

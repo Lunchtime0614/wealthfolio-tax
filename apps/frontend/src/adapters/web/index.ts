@@ -77,11 +77,17 @@ export {
   checkActivitiesImport,
   checkExistingDuplicates,
   createActivity,
+  deleteImportTemplate,
   deleteActivity,
+  getImportTemplate,
   getAccountImportMapping,
+  linkAccountTemplate,
   getActivities,
   importActivities,
+  listImportTemplates,
+  previewImportAssets,
   saveAccountImportMapping,
+  saveImportTemplate,
   saveActivities,
   searchActivities,
   updateActivity,
@@ -169,6 +175,15 @@ export {
   updateQuote,
   updateQuoteMode,
 } from "../shared/market-data";
+
+// Custom Provider Commands
+export {
+  getCustomProviders,
+  createCustomProvider,
+  updateCustomProvider,
+  deleteCustomProvider,
+  testCustomProviderSource,
+} from "../shared/custom-provider";
 
 // Contribution Limits Commands
 export {
@@ -358,6 +373,18 @@ export {
   uninstallAddon,
   updateAddon,
 } from "./addons";
+
+// FIRE Planner (desktop-only — stubs throw at runtime)
+export {
+  getFireSettings,
+  saveFireSettings,
+  calculateFireProjection,
+  runFireMonteCarlo,
+  runFireScenarioAnalysis,
+  runFireSorr,
+  runFireSensitivity,
+  runFireStrategyComparison,
+} from "./fire-planner";
 
 // Crypto Commands (web stubs - not available in web mode)
 export {

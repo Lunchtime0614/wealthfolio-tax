@@ -408,16 +408,67 @@ mod tests {
         fn get_import_mapping(
             &self,
             _account_id: &str,
+            _context_kind: &str,
         ) -> AppResult<Option<ActivityImportMapping>> {
             unimplemented!()
         }
         async fn save_import_mapping(&self, _mapping: &ActivityImportMapping) -> AppResult<()> {
             unimplemented!()
         }
+        async fn link_account_template(
+            &self,
+            _account_id: &str,
+            _template_id: &str,
+            _context_kind: &str,
+        ) -> AppResult<()> {
+            unimplemented!()
+        }
+        fn list_import_templates(&self) -> AppResult<Vec<crate::activities::ImportTemplate>> {
+            Ok(Vec::new())
+        }
+        fn get_import_template(
+            &self,
+            _template_id: &str,
+        ) -> AppResult<Option<crate::activities::ImportTemplate>> {
+            Ok(None)
+        }
+        async fn save_import_template(
+            &self,
+            _template: &crate::activities::ImportTemplate,
+        ) -> AppResult<()> {
+            unimplemented!()
+        }
+        async fn delete_import_template(&self, _template_id: &str) -> AppResult<()> {
+            unimplemented!()
+        }
+        fn get_broker_sync_profile(
+            &self,
+            _account_id: &str,
+            _source_system: &str,
+        ) -> AppResult<Option<crate::activities::ImportTemplate>> {
+            Ok(None)
+        }
+        async fn save_broker_sync_profile(
+            &self,
+            _template: &crate::activities::ImportTemplate,
+        ) -> AppResult<()> {
+            Ok(())
+        }
+        async fn link_broker_sync_profile(
+            &self,
+            _account_id: &str,
+            _template_id: &str,
+            _source_system: &str,
+        ) -> AppResult<()> {
+            Ok(())
+        }
         fn calculate_average_cost(&self, _account_id: &str, _asset_id: &str) -> AppResult<Decimal> {
             unimplemented!()
         }
-        fn get_income_activities_data(&self) -> AppResult<Vec<ActivityIncomeData>> {
+        fn get_income_activities_data(
+            &self,
+            _account_id: Option<&str>,
+        ) -> AppResult<Vec<ActivityIncomeData>> {
             unimplemented!()
         }
         fn get_first_activity_date_overall(&self) -> AppResult<DateTime<Utc>> {
@@ -557,16 +608,70 @@ mod tests {
         ) -> AppResult<Option<DateTime<Utc>>> {
             Ok(None)
         }
-        fn get_import_mapping(&self, _id: &str) -> AppResult<Option<ActivityImportMapping>> {
+        fn get_import_mapping(
+            &self,
+            _id: &str,
+            _context_kind: &str,
+        ) -> AppResult<Option<ActivityImportMapping>> {
             Ok(None)
         }
         async fn save_import_mapping(&self, _m: &ActivityImportMapping) -> AppResult<()> {
             Ok(())
         }
+        async fn link_account_template(
+            &self,
+            _account_id: &str,
+            _template_id: &str,
+            _context_kind: &str,
+        ) -> AppResult<()> {
+            Ok(())
+        }
+        fn list_import_templates(&self) -> AppResult<Vec<crate::activities::ImportTemplate>> {
+            Ok(Vec::new())
+        }
+        fn get_import_template(
+            &self,
+            _template_id: &str,
+        ) -> AppResult<Option<crate::activities::ImportTemplate>> {
+            Ok(None)
+        }
+        async fn save_import_template(
+            &self,
+            _template: &crate::activities::ImportTemplate,
+        ) -> AppResult<()> {
+            Ok(())
+        }
+        async fn delete_import_template(&self, _template_id: &str) -> AppResult<()> {
+            Ok(())
+        }
+        fn get_broker_sync_profile(
+            &self,
+            _account_id: &str,
+            _source_system: &str,
+        ) -> AppResult<Option<crate::activities::ImportTemplate>> {
+            Ok(None)
+        }
+        async fn save_broker_sync_profile(
+            &self,
+            _template: &crate::activities::ImportTemplate,
+        ) -> AppResult<()> {
+            Ok(())
+        }
+        async fn link_broker_sync_profile(
+            &self,
+            _account_id: &str,
+            _template_id: &str,
+            _source_system: &str,
+        ) -> AppResult<()> {
+            Ok(())
+        }
         fn calculate_average_cost(&self, _acc: &str, _asset: &str) -> AppResult<Decimal> {
             unimplemented!()
         }
-        fn get_income_activities_data(&self) -> AppResult<Vec<ActivityIncomeData>> {
+        fn get_income_activities_data(
+            &self,
+            _account_id: Option<&str>,
+        ) -> AppResult<Vec<ActivityIncomeData>> {
             unimplemented!()
         }
         fn get_first_activity_date_overall(&self) -> AppResult<DateTime<Utc>> {
@@ -3210,6 +3315,66 @@ mod tests {
         // Should be the most recent snapshot (d2)
         assert_eq!(snapshot.snapshot_date, d2);
         assert_eq!(snapshot.cash_balances.get("USD"), Some(&dec!(8000)));
+    }
+
+    #[tokio::test]
+    async fn test_get_latest_holdings_snapshot_excludes_future_dated_activity() {
+        let base = Arc::new(RwLock::new("USD".to_string()));
+
+        let mut account_repo = MockAccountRepository::new();
+        let acc = create_test_account("acc1", "USD", "Test Account");
+        account_repo.add_account(acc.clone());
+
+        let today = valuation_date_today();
+        let d1 = today.pred_opt().unwrap_or(today);
+        let d_future = today.succ_opt().unwrap_or(today);
+
+        let dep1 = create_test_activity(
+            "dep1",
+            &acc.id,
+            Some("CASH:USD"),
+            "DEPOSIT",
+            d1,
+            None,
+            None,
+            Some(dec!(5000)),
+            "USD",
+        );
+
+        let dep2 = create_test_activity(
+            "dep2",
+            &acc.id,
+            Some("CASH:USD"),
+            "DEPOSIT",
+            d_future,
+            None,
+            None,
+            Some(dec!(3000)),
+            "USD",
+        );
+
+        let activity_repo = Arc::new(MockActivityRepositoryWithData::new(vec![dep1, dep2]));
+        let fx = Arc::new(MockFxService::new());
+        let snapshot_repo = Arc::new(MockSnapshotRepository::new());
+        let asset_repo = Arc::new(MockAssetRepository::new());
+
+        let svc = SnapshotService::new(
+            base,
+            Arc::new(account_repo),
+            activity_repo,
+            snapshot_repo.clone(),
+            asset_repo,
+            fx,
+        );
+
+        let _ = svc
+            .recalculate_holdings_snapshots(None, SnapshotRecalcMode::IncrementalFromLast)
+            .await
+            .unwrap();
+
+        let latest = svc.get_latest_holdings_snapshot(&acc.id).unwrap().unwrap();
+        assert!(latest.snapshot_date < d_future);
+        assert_eq!(latest.cash_balances.get("USD"), Some(&dec!(5000)));
     }
 
     #[tokio::test]

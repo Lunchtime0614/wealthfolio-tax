@@ -97,6 +97,17 @@ mod desktop {
             scheduler::run_startup_sync(&startup_handle, &startup_context).await;
         });
 
+        // Start periodic market data sync (6h interval, 2min initial delay)
+        let periodic_quote_service = Arc::clone(&context.quote_service);
+        tauri::async_runtime::spawn(async move {
+            wealthfolio_core::quotes::scheduler::run_periodic_sync(
+                periodic_quote_service,
+                std::time::Duration::from_secs(120),
+                std::time::Duration::from_secs(6 * 3600),
+            )
+            .await;
+        });
+
         // Start background device sync engine (self-skips when device is not READY).
         #[cfg(feature = "device-sync")]
         {
@@ -275,9 +286,15 @@ pub fn run() {
             commands::activity::save_activities,
             commands::activity::delete_activity,
             commands::activity::check_activities_import,
+            commands::activity::preview_import_assets,
             commands::activity::import_activities,
             commands::activity::get_account_import_mapping,
             commands::activity::save_account_import_mapping,
+            commands::activity::link_account_template,
+            commands::activity::list_import_templates,
+            commands::activity::get_import_template,
+            commands::activity::save_import_template,
+            commands::activity::delete_import_template,
             commands::activity::check_existing_duplicates,
             commands::activity::parse_csv,
             // Settings commands
@@ -453,6 +470,10 @@ pub fn run() {
             commands::brokers_sync::get_import_runs,
             #[cfg(feature = "connect-sync")]
             commands::brokers_sync::get_data_import_runs,
+            #[cfg(feature = "connect-sync")]
+            commands::brokers_sync::get_broker_sync_profile,
+            #[cfg(feature = "connect-sync")]
+            commands::brokers_sync::save_broker_sync_profile_rules,
             // Device sync commands
             #[cfg(feature = "device-sync")]
             commands::device_sync::enroll_device,
@@ -563,6 +584,12 @@ pub fn run() {
             commands::sync_crypto::sync_compute_sas,
             #[cfg(feature = "device-sync")]
             commands::sync_crypto::sync_generate_device_id,
+            // Custom provider commands
+            commands::custom_provider::get_custom_providers,
+            commands::custom_provider::create_custom_provider,
+            commands::custom_provider::update_custom_provider,
+            commands::custom_provider::delete_custom_provider,
+            commands::custom_provider::test_custom_provider_source,
             // Health commands
             commands::health::get_health_status,
             commands::health::run_health_checks,
@@ -572,6 +599,15 @@ pub fn run() {
             commands::health::execute_health_fix,
             commands::health::get_health_config,
             commands::health::update_health_config,
+            // FIRE planner commands
+            commands::fire::get_fire_settings,
+            commands::fire::save_fire_settings,
+            commands::fire::calculate_fire_projection,
+            commands::fire::run_fire_monte_carlo,
+            commands::fire::run_fire_scenario_analysis,
+            commands::fire::run_fire_sorr,
+            commands::fire::run_fire_sensitivity,
+            commands::fire::run_fire_strategy_comparison,
         ])
         .build(tauri::generate_context!())
         .expect("Failed to build Wealthfolio application")

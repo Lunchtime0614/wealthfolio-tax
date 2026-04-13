@@ -55,9 +55,25 @@ diesel::table! {
 }
 
 diesel::table! {
-    activity_import_profiles (account_id) {
+    import_account_templates (id) {
+        id -> Text,
         account_id -> Text,
+        context_kind -> Text,
+        source_system -> Text,
+        template_id -> Text,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    import_templates (id) {
+        id -> Text,
         name -> Text,
+        scope -> Text,
+        kind -> Text,
+        source_system -> Text,
+        config_version -> Integer,
         config -> Text,
         created_at -> Timestamp,
         updated_at -> Timestamp,
@@ -165,6 +181,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    market_data_custom_providers (id) {
+        id -> Text,
+        code -> Text,
+        name -> Text,
+        description -> Text,
+        enabled -> Bool,
+        priority -> Integer,
+        config -> Nullable<Text>,
+        created_at -> Text,
+        updated_at -> Text,
+    }
+}
+
+diesel::table! {
     daily_account_valuation (id) {
         id -> Text,
         account_id -> Text,
@@ -192,19 +222,19 @@ diesel::table! {
 }
 
 diesel::table! {
-    health_issue_dismissals (issue_id) {
-        issue_id -> Text,
-        dismissed_at -> Text,
-        data_hash -> Text,
-    }
-}
-
-diesel::table! {
     goals_allocation (id) {
         id -> Text,
         percent_allocation -> Integer,
         goal_id -> Text,
         account_id -> Text,
+    }
+}
+
+diesel::table! {
+    health_issue_dismissals (issue_id) {
+        issue_id -> Text,
+        dismissed_at -> Text,
+        data_hash -> Text,
     }
 }
 
@@ -260,6 +290,8 @@ diesel::table! {
         last_synced_at -> Nullable<Text>,
         last_sync_status -> Nullable<Text>,
         last_sync_error -> Nullable<Text>,
+        provider_type -> Text,
+        config -> Nullable<Text>,
     }
 }
 
@@ -287,6 +319,25 @@ diesel::table! {
         profile_enriched_at -> Nullable<Text>,
         created_at -> Text,
         updated_at -> Text,
+    }
+}
+
+diesel::table! {
+    quotes (id) {
+        id -> Text,
+        asset_id -> Text,
+        day -> Text,
+        source -> Text,
+        open -> Nullable<Text>,
+        high -> Nullable<Text>,
+        low -> Nullable<Text>,
+        close -> Text,
+        adjclose -> Nullable<Text>,
+        volume -> Nullable<Text>,
+        currency -> Text,
+        notes -> Nullable<Text>,
+        created_at -> Text,
+        timestamp -> Text,
     }
 }
 
@@ -372,25 +423,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    quotes (id) {
-        id -> Text,
-        asset_id -> Text,
-        day -> Text,
-        source -> Text,
-        open -> Nullable<Text>,
-        high -> Nullable<Text>,
-        low -> Nullable<Text>,
-        close -> Text,
-        adjclose -> Nullable<Text>,
-        volume -> Nullable<Text>,
-        currency -> Text,
-        notes -> Nullable<Text>,
-        created_at -> Text,
-        timestamp -> Text,
-    }
-}
-
-diesel::table! {
     taxonomies (id) {
         id -> Text,
         name -> Text,
@@ -434,10 +466,12 @@ diesel::joinable!(import_runs -> accounts (account_id));
 diesel::joinable!(quotes -> assets (asset_id));
 diesel::joinable!(taxonomy_categories -> taxonomies (taxonomy_id));
 
+diesel::joinable!(import_account_templates -> import_templates (template_id));
+
 diesel::allow_tables_to_appear_in_same_query!(
+    import_account_templates,
     accounts,
     activities,
-    activity_import_profiles,
     ai_messages,
     ai_thread_tags,
     ai_threads,
@@ -446,11 +480,13 @@ diesel::allow_tables_to_appear_in_same_query!(
     assets,
     brokers_sync_state,
     contribution_limits,
+    market_data_custom_providers,
     daily_account_valuation,
     goals,
     goals_allocation,
     health_issue_dismissals,
     holdings_snapshots,
+    import_templates,
     import_runs,
     market_data_providers,
     platforms,

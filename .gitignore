@@ -67,7 +67,6 @@ target/
 
 # Tauri generated
 apps/tauri/gen/schemas/
-apps/tauri/gen/apple/wealthfolio-app_iOS/Info.plist
 
 # OS generated files
 .DS_Store

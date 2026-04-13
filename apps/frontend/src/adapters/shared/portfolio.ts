@@ -1,16 +1,16 @@
 // Portfolio Commands
 import type {
-    AccountValuation,
-    AllocationHoldings,
-    CheckHoldingsImportResult,
-    Holding,
-    HoldingsSnapshotInput,
-    ImportHoldingsCsvResult,
-    IncomeSummary,
-    PerformanceMetrics,
-    PortfolioAllocations,
-    SimplePerformanceMetrics,
-    SnapshotInfo,
+  AccountValuation,
+  AllocationHoldings,
+  CheckHoldingsImportResult,
+  Holding,
+  HoldingsSnapshotInput,
+  ImportHoldingsCsvResult,
+  IncomeSummary,
+  PerformanceMetrics,
+  PortfolioAllocations,
+  SimplePerformanceMetrics,
+  SnapshotInfo,
 } from "@/lib/types";
 
 import { invoke, logger } from "./platform";
@@ -29,8 +29,8 @@ export const getHoldings = async (accountId: string, group?: string): Promise<Ho
   return invoke<Holding[]>("get_holdings", params);
 };
 
-export const getIncomeSummary = async (): Promise<IncomeSummary[]> => {
-  return invoke<IncomeSummary[]>("get_income_summary");
+export const getIncomeSummary = async (accountId?: string): Promise<IncomeSummary[]> => {
+  return invoke<IncomeSummary[]>("get_income_summary", { accountId });
 };
 
 export const getHistoricalValuations = async (
@@ -58,19 +58,17 @@ export const getLatestValuations = async (accountIds: string[]): Promise<Account
 export const calculatePerformanceHistory = async (
   itemType: "account" | "symbol",
   itemId: string,
-  startDate: string,
-  endDate: string,
+  startDate: string | undefined,
+  endDate: string | undefined,
   trackingMode?: "HOLDINGS" | "TRANSACTIONS",
   group?: string,
 ): Promise<PerformanceMetrics> => {
-  const response = await invoke<PerformanceMetrics>("calculate_performance_history", {
-    itemType,
-    itemId,
-    startDate,
-    endDate,
-    trackingMode,
-    group,
-  });
+  const args: Record<string, unknown> = { itemType, itemId };
+  if (startDate) args.startDate = startDate;
+  if (endDate) args.endDate = endDate;
+  if (trackingMode) args.trackingMode = trackingMode;
+  if (group) args.group = group;
+  const response = await invoke<PerformanceMetrics>("calculate_performance_history", args);
 
   if (typeof response === "string" || !response || Object.keys(response).length === 0) {
     throw new Error(

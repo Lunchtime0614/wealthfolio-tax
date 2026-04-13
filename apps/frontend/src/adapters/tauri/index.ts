@@ -79,6 +79,9 @@ export * from "../shared/portfolio";
 // Market Data Commands
 export * from "../shared/market-data";
 
+// Custom Provider Commands
+export * from "../shared/custom-provider";
+
 // Goal Commands
 export * from "../shared/goals";
 
@@ -199,3 +202,15 @@ export {
   syncGenerateDeviceId,
   syncHmacSha256,
 } from "./crypto";
+
+// FIRE Planner (desktop-only feature)
+export {
+  getFireSettings,
+  saveFireSettings,
+  calculateFireProjection,
+  runFireMonteCarlo,
+  runFireScenarioAnalysis,
+  runFireSorr,
+  runFireSensitivity,
+  runFireStrategyComparison,
+} from "./fire-planner";

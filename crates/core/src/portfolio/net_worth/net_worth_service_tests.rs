@@ -12,7 +12,6 @@ use crate::portfolio::snapshot::{
     AccountStateSnapshot, Position, SnapshotRepositoryTrait, SnapshotSource,
 };
 use crate::portfolio::valuation::{DailyAccountValuation, ValuationRepositoryTrait};
-use crate::quotes::DataSource;
 use crate::quotes::{
     LatestQuotePair, LatestQuoteSnapshot, ProviderInfo, Quote, QuoteImport, QuoteServiceTrait,
     QuoteSyncState, SymbolSearchResult, SymbolSyncPlan, SyncResult,
@@ -793,6 +792,10 @@ impl ValuationRepositoryTrait for MockValuationRepository {
             .collect();
         Ok(filtered)
     }
+
+    fn get_accounts_with_negative_balance(&self, _account_ids: &[String]) -> Result<Vec<String>> {
+        Ok(Vec::new())
+    }
 }
 
 // ============================================================================
@@ -911,7 +914,7 @@ fn create_test_quote(symbol: &str, price: Decimal, date: NaiveDate, currency: &s
         adjclose: price,
         volume: dec!(0),
         currency: currency.to_string(),
-        data_source: DataSource::Manual,
+        data_source: "MANUAL".to_string(),
         created_at: Utc::now(),
         notes: None,
     }

@@ -32,7 +32,7 @@ import {
   SelectValue,
 } from "@wealthfolio/ui/components/ui/select";
 import { Textarea } from "@wealthfolio/ui/components/ui/textarea";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -41,7 +41,8 @@ const INSTRUMENT_TYPE_OPTIONS = [
   { value: "CRYPTO", label: "Cryptocurrency" },
   { value: "BOND", label: "Bond" },
   { value: "OPTION", label: "Option" },
-  { value: "METAL", label: "Precious Metal" },
+  { value: "FX", label: "Foreign Exchange" },
+  { value: "METAL", label: "Metal (Commodity)" },
 ] as const;
 
 const QUOTE_MODE_OPTIONS = [
@@ -49,8 +50,9 @@ const QUOTE_MODE_OPTIONS = [
   { value: "MARKET", label: "Market (auto-sync)" },
 ] as const;
 
-/** Map search result quoteType to our InstrumentType form values */
-function mapQuoteTypeToInstrumentType(quoteType: string): string {
+/** Map search result quoteType to our InstrumentType form values.
+ *  Returns null for unrecognized types so the caller can fall back to manual mode. */
+function mapQuoteTypeToInstrumentType(quoteType: string): string | null {
   switch (quoteType.toUpperCase()) {
     case "EQUITY":
     case "ETF":
@@ -66,7 +68,7 @@ function mapQuoteTypeToInstrumentType(quoteType: string): string {
     case "OPTION":
       return "OPTION";
     default:
-      return "EQUITY";
+      return null;
   }
 }
 
@@ -93,6 +95,10 @@ interface CreateSecurityDialogProps {
   onOpenChange: (open: boolean) => void;
   onSubmit: (payload: NewAsset) => void;
   isPending?: boolean;
+  initialAsset?: Partial<NewAsset>;
+  title?: string;
+  description?: string;
+  submitLabel?: string;
 }
 
 export function CreateSecurityDialog({
@@ -100,9 +106,14 @@ export function CreateSecurityDialog({
   onOpenChange,
   onSubmit,
   isPending = false,
+  initialAsset,
+  title = "Add Security",
+  description = "Search for a security to auto-fill details, or enter them manually.",
+  submitLabel = "Create Security",
 }: CreateSecurityDialogProps) {
   const { settings } = useSettingsContext();
   const defaultCurrency = settings?.baseCurrency || "USD";
+  const [selectedResult, setSelectedResult] = useState<SymbolSearchResult | undefined>();
 
   const { data: exchanges = [] } = useQuery({
     queryKey: ["exchanges"],
@@ -119,42 +130,43 @@ export function CreateSecurityDialog({
     [exchanges],
   );
 
+  const defaultValues = useMemo<CreateSecurityFormValues>(
+    () => ({
+      symbol: (initialAsset?.instrumentSymbol || initialAsset?.displayCode || "").toUpperCase(),
+      name: initialAsset?.name || initialAsset?.displayCode || initialAsset?.instrumentSymbol || "",
+      instrumentType: initialAsset?.instrumentType || "EQUITY",
+      quoteCcy: initialAsset?.quoteCcy || defaultCurrency,
+      quoteMode: initialAsset?.quoteMode === "MARKET" ? "MARKET" : "MANUAL",
+      instrumentExchangeMic: normalizeMic(initialAsset?.instrumentExchangeMic),
+      notes: initialAsset?.notes || "",
+    }),
+    [defaultCurrency, initialAsset],
+  );
+
   const form = useForm<CreateSecurityFormValues>({
     resolver: zodResolver(createSecuritySchema),
-    defaultValues: {
-      symbol: "",
-      name: "",
-      instrumentType: "EQUITY",
-      quoteCcy: defaultCurrency,
-      quoteMode: "MANUAL",
-      instrumentExchangeMic: "",
-      notes: "",
-    },
+    defaultValues,
   });
 
   useEffect(() => {
     if (open) {
-      form.reset({
-        symbol: "",
-        name: "",
-        instrumentType: "EQUITY",
-        quoteCcy: defaultCurrency,
-        quoteMode: "MANUAL",
-        instrumentExchangeMic: "",
-        notes: "",
-      });
+      setSelectedResult(undefined);
+      form.reset(defaultValues);
     }
-  }, [open, defaultCurrency, form]);
+  }, [defaultValues, form, open]);
 
   const handleTickerSelect = useCallback(
     (_symbol: string, result?: SymbolSearchResult) => {
       if (!result) return;
 
+      setSelectedResult(result);
       form.setValue("symbol", result.symbol.toUpperCase(), { shouldValidate: true });
       form.setValue("name", result.longName || result.shortName || "", { shouldValidate: true });
 
-      if (result.quoteType) {
-        form.setValue("instrumentType", mapQuoteTypeToInstrumentType(result.quoteType));
+      const mappedType = result.quoteType ? mapQuoteTypeToInstrumentType(result.quoteType) : null;
+
+      if (mappedType) {
+        form.setValue("instrumentType", mappedType);
       }
       if (result.currency) {
         form.setValue("quoteCcy", result.currency, { shouldValidate: true });
@@ -163,16 +175,23 @@ export function CreateSecurityDialog({
         form.setValue("instrumentExchangeMic", normalizeMic(result.exchangeMic));
       }
 
-      // If the result comes from a data source (not manual), default to auto-sync
-      const isManual = result.dataSource === "MANUAL";
-      form.setValue("quoteMode", isManual ? "MANUAL" : "MARKET");
+      // If the type is unrecognized, fall back to manual mode.
+      // Otherwise auto-sync unless the result is from MANUAL source.
+      if (!mappedType) {
+        form.setValue("quoteMode", "MANUAL");
+      } else {
+        const isManual = result.dataSource === "MANUAL";
+        form.setValue("quoteMode", isManual ? "MANUAL" : "MARKET");
+      }
     },
     [form],
   );
 
   const handleSubmit = (values: CreateSecurityFormValues) => {
+    const kind = values.instrumentType === "FX" ? "FX" : "INVESTMENT";
+
     const payload: NewAsset = {
-      kind: "INVESTMENT",
+      kind,
       name: values.name,
       displayCode: values.symbol,
       isActive: true,
@@ -200,10 +219,8 @@ export function CreateSecurityDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add Security</DialogTitle>
-          <DialogDescription>
-            Search for a security to auto-fill details, or enter them manually.
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -214,7 +231,7 @@ export function CreateSecurityDialog({
                 <label className="text-sm font-medium">Search</label>
                 <TickerSearchInput
                   onSelectResult={handleTickerSelect}
-                  placeholder="Search by name or symbol..."
+                  placeholder="Search by ticker, name or ISIN…"
                   defaultCurrency={defaultCurrency}
                   autoFocusSearch
                   hideCustomCreate
@@ -233,7 +250,16 @@ export function CreateSecurityDialog({
                       <Input
                         placeholder="e.g., AAPL"
                         {...field}
-                        onChange={(e) => field.onChange(e.target.value.toUpperCase())}
+                        onChange={(e) => {
+                          const next = e.target.value.toUpperCase();
+                          if (
+                            selectedResult &&
+                            next.trim() !== selectedResult.symbol.toUpperCase()
+                          ) {
+                            setSelectedResult(undefined);
+                          }
+                          field.onChange(next);
+                        }}
                         className="uppercase"
                       />
                     </FormControl>
@@ -386,7 +412,7 @@ export function CreateSecurityDialog({
                     <Icons.Spinner className="h-4 w-4 animate-spin" /> Creating...
                   </span>
                 ) : (
-                  "Create Security"
+                  submitLabel
                 )}
               </Button>
             </DialogFooter>

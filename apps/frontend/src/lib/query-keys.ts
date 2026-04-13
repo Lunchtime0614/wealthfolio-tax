@@ -36,6 +36,7 @@ export const QueryKeys = {
   ASSETS: "assets",
   LATEST_QUOTES: "latest_quotes",
   IMPORT_MAPPING: "import_mapping",
+  IMPORT_TEMPLATES: "import_templates",
 
   PERFORMANCE_SUMMARY: "performanceSummary",
   PERFORMANCE_HISTORY: "performanceHistory",
@@ -54,6 +55,7 @@ export const QueryKeys = {
   // Market Data Providers
   MARKET_DATA_PROVIDERS: "marketDataProviders",
   MARKET_DATA_PROVIDER_SETTINGS: "marketDataProviderSettings",
+  CUSTOM_PROVIDERS: "CUSTOM_PROVIDERS",
 
   // AI Providers
   AI_PROVIDERS: "aiProviders",
